@@ -144,13 +144,15 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: var(--space-4) var(--space-5);
+    padding: var(--space-3) var(--space-4);
     font-size: 13px;
     font-weight: 600;
     background: var(--panel-header);
     border-bottom: 1px solid var(--border-light);
     min-height: 56px;
     position: relative;
+    flex-wrap: wrap;
+    gap: var(--space-2);
 }
 
 .panel-header h1, .panel-header h2 {
@@ -158,12 +160,26 @@ body {
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.header-left {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    min-width: 0;
+    flex: 1;
 }
 
 .header-right {
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    flex-shrink: 0;
 }
 
 .header-right i {
@@ -202,9 +218,13 @@ body {
 
 .left-panel .breadcrumb {
     color: var(--text-tertiary);
-    margin-left: var(--space-2);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 400;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    line-height: 1.2;
 }
 
 .Lamper-welcome {
@@ -343,6 +363,127 @@ body {
     font-size: 11px;
     gap: var(--space-1);
     min-height: 28px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Responsive header adjustments */
+@media (max-width: 300px) {
+    .panel-header {
+        padding: var(--space-2) var(--space-3);
+        min-height: 48px;
+    }
+
+    .header-right {
+        gap: var(--space-1);
+    }
+
+    .action-btn.small {
+        padding: var(--space-1);
+        font-size: 0; /* Hide text on very small screens */
+        min-width: 28px;
+        justify-content: center;
+    }
+
+    .action-btn.small i {
+        margin: 0;
+    }
+
+    .left-panel .breadcrumb {
+        font-size: 10px;
+    }
+}
+
+/* Adaptive button text hiding for narrow panels */
+.left-panel[style*="width: 1"] .action-btn.small,
+.left-panel[style*="width: 2"] .action-btn.small {
+    font-size: 0;
+    min-width: 28px;
+    justify-content: center;
+}
+
+.left-panel[style*="width: 1"] .action-btn.small i,
+.left-panel[style*="width: 2"] .action-btn.small i {
+    margin: 0;
+}
+
+/* Responsive header states */
+.panel-header[data-narrow="true"] .breadcrumb {
+    font-size: 10px;
+    max-width: 120px;
+}
+
+.panel-header[data-narrow="very"] .breadcrumb {
+    display: none;
+}
+
+.panel-header[data-narrow="true"] .header-right {
+    gap: var(--space-1);
+}
+
+.panel-header[data-narrow="very"] .header-right {
+    gap: 2px;
+}
+
+/* Button responsive states */
+.action-btn.small.compact {
+    padding: var(--space-1);
+    font-size: 10px;
+    gap: 2px;
+}
+
+.action-btn.small.icon-only {
+    font-size: 0;
+    min-width: 24px;
+    width: 24px;
+    height: 24px;
+    padding: 2px;
+    justify-content: center;
+    align-items: center;
+}
+
+.action-btn.small.icon-only i {
+    margin: 0;
+    font-size: 12px;
+}
+
+/* Very narrow panel adjustments */
+.panel-header[data-narrow="very"] {
+    padding: var(--space-2);
+    min-height: 44px;
+}
+
+.panel-header[data-narrow="very"] .header-left h1 {
+    font-size: 13px;
+}
+
+/* Smooth transitions for responsive changes */
+.action-btn.small,
+.breadcrumb,
+.panel-header {
+    transition: all 0.2s ease;
+}
+
+/* Tooltip enhancement for icon-only buttons */
+.action-btn.small.icon-only {
+    position: relative;
+}
+
+.action-btn.small.icon-only:hover::after {
+    content: attr(title);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-medium);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-2);
+    font-size: 11px;
+    white-space: nowrap;
+    z-index: 1000;
+    box-shadow: var(--shadow-md);
+    margin-bottom: 4px;
 }
 
 .action-btn.primary {
@@ -651,15 +792,20 @@ kbd {
     flex-direction: column;
     gap: var(--space-3);
     padding-bottom: var(--space-3);
+    overflow-y: auto;
+    overflow-x: hidden;
+    max-height: 100%;
 }
 
 .message {
-    max-width: 85%;
+    max-width: 90%;
     padding: var(--space-3) var(--space-4);
     border: 1px solid var(--border-light);
     border-radius: var(--radius-lg);
     background: var(--bg-elevated);
-    white-space: pre-wrap;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
     box-shadow: var(--shadow-sm);
     font-size: 14px;
     line-height: 1.5;
@@ -698,6 +844,9 @@ kbd {
 .markdown-content {
     white-space: normal !important;
     line-height: 1.6;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 100%;
 }
 
 .markdown-content h1,
@@ -733,15 +882,20 @@ kbd {
 }
 
 .markdown-content pre {
+    position: relative;
     background: rgba(0, 0, 0, 0.06);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 12px;
+    padding-top: 40px;
     margin: 10px 0;
     overflow-x: auto;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
     font-size: 0.9em;
     line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-width: 100%;
 }
 
 .markdown-content pre code {
@@ -749,6 +903,62 @@ kbd {
     padding: 0;
     border-radius: 0;
     font-size: inherit;
+}
+
+/* Copy button for code blocks */
+.code-block-wrapper {
+    position: relative;
+}
+
+.copy-button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: all var(--transition-fast);
+    z-index: 10;
+}
+
+.copy-button:hover {
+    opacity: 1;
+    background: var(--bg-secondary);
+    border-color: var(--border-medium);
+}
+
+.copy-button.copied {
+    background: var(--accent-subtle);
+    color: var(--accent-primary);
+    border-color: var(--accent-light);
+}
+
+/* Responsive improvements for chat messages */
+@media (max-width: 768px) {
+    .message {
+        max-width: 95%;
+        padding: var(--space-2) var(--space-3);
+        font-size: 13px;
+    }
+
+    .markdown-content pre {
+        padding: 8px;
+        padding-top: 32px;
+        font-size: 0.8em;
+        overflow-x: auto;
+    }
+
+    .copy-button {
+        top: 4px;
+        right: 4px;
+        padding: 2px 6px;
+        font-size: 10px;
+    }
 }
 
 .markdown-content ul,

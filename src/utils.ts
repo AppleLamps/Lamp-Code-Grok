@@ -1,4 +1,29 @@
 // Utility functions used across the LampCode IDE application
+import { TrackingEvent, DEBUG_CONFIG } from './types.js';
+
+// Debug logging utility
+export const logger = {
+  error: (message: string, ...args: unknown[]): void => {
+    if (DEBUG_CONFIG.logLevel === 'error' || DEBUG_CONFIG.enabled) {
+      console.error(`[ERROR] ${message}`, ...args);
+    }
+  },
+  warn: (message: string, ...args: unknown[]): void => {
+    if (['error', 'warn'].includes(DEBUG_CONFIG.logLevel) || DEBUG_CONFIG.enabled) {
+      console.warn(`[WARN] ${message}`, ...args);
+    }
+  },
+  info: (message: string, ...args: unknown[]): void => {
+    if (['error', 'warn', 'info'].includes(DEBUG_CONFIG.logLevel) || DEBUG_CONFIG.enabled) {
+      console.log(`[INFO] ${message}`, ...args);
+    }
+  },
+  debug: (message: string, ...args: unknown[]): void => {
+    if (DEBUG_CONFIG.enabled && DEBUG_CONFIG.logLevel === 'debug') {
+      console.log(`[DEBUG] ${message}`, ...args);
+    }
+  }
+};
 
 // DOM utility functions
 export const el = (tag: string, cls?: string, text?: string): HTMLElement => {
@@ -89,22 +114,33 @@ export const trapFocus = (element: HTMLElement): (() => void) => {
   return () => element.removeEventListener('keydown', handleTabKey);
 };
 
-// Event tracking utility
-const eventLog: Array<{ id: string; ts: number; type: string; [key: string]: unknown }> = [];
+// Event tracking utility with proper typing
+const eventLog: TrackingEvent[] = [];
 
-export const track = (type: string, details: Record<string, unknown> = {}): { 
-  id: string; 
-  ts: number; 
-  type: string; 
-  [key: string]: unknown; 
-} => {
-  const entry = { 
-    id: (crypto as any).randomUUID?.() || String(Date.now()), 
-    ts: Date.now(), 
-    type, 
-    ...details 
+// Generate a proper UUID or fallback to timestamp-based ID
+const generateId = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for environments without crypto.randomUUID
+  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+};
+
+export const track = (type: string, details: Record<string, unknown> = {}): TrackingEvent => {
+  const entry: TrackingEvent = {
+    id: generateId(),
+    ts: Date.now(),
+    type,
+    details
   };
+
   eventLog.push(entry);
-  (window as any).__explorerEventLog = eventLog;
+
+  // Expose to window for debugging (only in debug mode)
+  if (DEBUG_CONFIG.enabled) {
+    (window as any).__explorerEventLog = eventLog;
+  }
+
+  logger.debug(`Event tracked: ${type}`, details);
   return entry;
 };

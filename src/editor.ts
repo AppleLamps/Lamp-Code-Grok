@@ -1,5 +1,6 @@
 // Code editor management module with tab support
-import { WorkspaceFile } from './types.js';
+import { WorkspaceFile, MonacoEditor, MonacoEnvironment } from './types.js';
+import { logger } from './utils.js';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
@@ -17,7 +18,7 @@ export interface EditorTab {
 export class EditorManager {
   private tabs: EditorTab[] = [];
   private activeTabId: string | null = null;
-  private editorInstance: any = null;
+  private editorInstance: MonacoEditor | null = null;
   private monacoLoaded = false;
 
   constructor() {}
@@ -33,8 +34,8 @@ export class EditorManager {
 
     try {
       // Configure Monaco Editor workers for Vite
-      (window as any).MonacoEnvironment = {
-        getWorker(_: any, label: string) {
+      const monacoEnvironment: MonacoEnvironment = {
+        getWorker(_workerId: string, label: string): Worker {
           if (label === 'json') {
             return new jsonWorker();
           }
@@ -51,7 +52,8 @@ export class EditorManager {
         },
       };
 
-      // Set up Monaco on window for the rest of the class to use
+      // Assign to window with proper typing
+      (window as any).MonacoEnvironment = monacoEnvironment;
       (window as any).monaco = monaco;
       
       // Define custom theme that matches the application's color scheme
@@ -91,15 +93,16 @@ export class EditorManager {
       });
       
       this.monacoLoaded = true;
+      logger.info('Monaco Editor loaded successfully');
     } catch (error) {
-      console.error('Failed to load Monaco Editor:', error);
+      logger.error('Failed to load Monaco Editor:', error);
       throw error;
     }
   }
 
   openFile(file: WorkspaceFile): void {
-    console.log('🗂️ Opening file:', file.path);
-    
+    logger.debug('Opening file:', file.path);
+
     // Check if file is already open
     const existingTab = this.tabs.find(tab => tab.file.path === file.path);
     if (existingTab) {
@@ -117,7 +120,7 @@ export class EditorManager {
 
     // Set all other tabs to inactive
     this.tabs.forEach(tab => tab.isActive = false);
-    
+
     // Add new tab
     this.tabs.push(newTab);
     this.activeTabId = newTab.id;
@@ -284,12 +287,15 @@ export class EditorManager {
 
   private async loadFileInEditor(file: WorkspaceFile): Promise<void> {
     if (!this.monacoLoaded) {
-      console.warn('Monaco Editor not loaded yet');
+      logger.warn('Monaco Editor not loaded yet');
       return;
     }
 
     const editorElement = document.getElementById('monacoEditor');
-    if (!editorElement) return;
+    if (!editorElement) {
+      logger.warn('Monaco editor element not found');
+      return;
+    }
 
     // Dispose existing editor
     if (this.editorInstance) {
@@ -299,7 +305,7 @@ export class EditorManager {
     // Get language from file extension
     const language = this.getLanguageFromExtension(file.name);
 
-    // Create new Monaco editor instance
+    // Create new Monaco editor instance with proper typing
     this.editorInstance = (window as any).monaco.editor.create(editorElement, {
       value: file.text || '',
       language: language,

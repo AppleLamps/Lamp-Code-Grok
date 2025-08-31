@@ -205,5 +205,12 @@ export class SettingsManager {
         setTimeout(() => this.closeSettingsModal(), 1000); // Give time to see success message
       }
     });
+
+    // Security notice learn more link
+    const securityLearnMoreLink = document.getElementById('securityLearnMoreLink');
+    securityLearnMoreLink?.addEventListener('click', (e) => {
+      e.preventDefault();
+      alert('For production, implement a backend proxy that stores API keys securely and forwards requests to OpenRouter. This prevents exposing keys to client-side code.');
+    });
   }
 }

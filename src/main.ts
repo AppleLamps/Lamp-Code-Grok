@@ -1,10 +1,12 @@
 // Main application entry point - coordinates all modules
+import '@fortawesome/fontawesome-free/css/all.min.css';
 import { SettingsManager } from './settings.js';
 import { ChatManager } from './chat.js';
 import { ContextManager } from './context.js';
 import { ExplorerManager } from './explorer.js';
 import { UIManager } from './ui.js';
 import { EditorManager } from './editor.js';
+import { logger } from './utils.js';
 
 // Initialize the application when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
@@ -31,12 +33,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   chatManager.setContextProvider(() => contextManager.buildContextMessage());
 
   // Load workspace session if available
-  console.log('🚀 App initialization: checking for saved workspace...');
+  logger.info('App initialization: checking for saved workspace...');
   if (!explorerManager.loadWorkspaceSession()) {
-    console.log('🆕 No saved workspace found, showing empty state');
+    logger.info('No saved workspace found, showing empty state');
     explorerManager.renderTree(); // Will show empty state
   } else {
-    console.log('🔄 Workspace loaded from session, calling renderTree...');
+    logger.info('Workspace loaded from session, calling renderTree...');
     contextManager.initializeSelection(); // Initialize context selection for loaded files
     explorerManager.renderTree();
   }
@@ -57,5 +59,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Setup debug helpers
   explorerManager.setupDebugHelpers();
 
-  console.log('✅ Application initialized successfully');
+  logger.info('Application initialized successfully');
 });

@@ -1,19 +1,20 @@
 // File explorer and workspace management module
-import { 
-  Workspace, 
-  WorkspaceFile, 
-  TreeNode, 
-  VirtualScrollState, 
+import {
+  Workspace,
+  WorkspaceFile,
+  TreeNode,
+  VirtualScrollState,
   WorkspaceSession,
-  VIRTUAL_SCROLL_CONFIG 
+  VIRTUAL_SCROLL_CONFIG,
+  DEBUG_CONFIG
 } from './types.js';
-import { 
-  loadWorkspaceSession, 
-  saveWorkspaceSession, 
-  serializeTree, 
-  deserializeTree 
+import {
+  loadWorkspaceSession,
+  saveWorkspaceSession,
+  serializeTree,
+  deserializeTree
 } from './storage.js';
-import { estimateTokens, iconForFile, track } from './utils.js';
+import { estimateTokens, iconForFile, track, logger } from './utils.js';
 
 export class ExplorerManager {
   private workspace: Workspace;
@@ -47,20 +48,20 @@ export class ExplorerManager {
   }
 
   private renderEmpty(): void {
-    console.log('📭 renderEmpty called - showing empty state');
+    logger.debug('Rendering empty state - no files in workspace');
     const emptyStateEl = document.getElementById('explorerEmptyState');
     const fileTreeEl = document.getElementById('fileTree');
-    
+
     if (emptyStateEl) {
       emptyStateEl.hidden = false;
       emptyStateEl.style.display = 'flex';
-      console.log('👁️ Showing empty state element');
+      logger.debug('Showing empty state element');
     }
     if (fileTreeEl) {
       fileTreeEl.hidden = true;
       fileTreeEl.style.display = 'none';
       fileTreeEl.innerHTML = '';
-      console.log('🙈 Hiding file tree element');
+      logger.debug('Hiding file tree element');
     }
   }
 
@@ -224,31 +225,62 @@ export class ExplorerManager {
   }
 
   renderTree(): void {
-    console.log('🌳 renderTree called, workspace.files.length:', this.workspace.files.length);
+    logger.debug('Rendering tree, workspace files count:', this.workspace.files.length);
+
     if (!this.workspace.files.length) {
-      console.log('📭 No files in workspace, showing empty state');
+      logger.debug('No files in workspace, showing empty state');
       return this.renderEmpty();
     }
-    console.log('🎉 Rendering tree with files:', this.workspace.files.map(f => f.path).slice(0, 5));
-    
-    // Force hide empty state and show file tree
+
+    logger.debug('Rendering tree with files:', this.workspace.files.map(f => f.path).slice(0, 5));
+
+    // Prepare UI elements
+    if (!this.prepareTreeUI()) {
+      return;
+    }
+
+    // Build tree structure if needed
+    this.ensureTreeStructure();
+
+    if (!this.workspace.tree) {
+      logger.warn('Failed to build tree structure');
+      return;
+    }
+
+    // Render the tree
+    this.renderTreeContent();
+  }
+
+  private prepareTreeUI(): boolean {
     const emptyStateEl = document.getElementById('explorerEmptyState');
     const fileTreeEl = document.getElementById('fileTree');
-    
+
     if (emptyStateEl) {
       emptyStateEl.hidden = true;
       emptyStateEl.style.display = 'none';
-      console.log('🙈 Hiding empty state element');
+      logger.debug('Hiding empty state element');
     }
-    if (!fileTreeEl) return;
+
+    if (!fileTreeEl) {
+      logger.error('File tree element not found');
+      return false;
+    }
+
     fileTreeEl.hidden = false;
     fileTreeEl.style.display = 'block';
-    console.log('👁️ Showing file tree element');
+    logger.debug('Showing file tree element');
 
+    return true;
+  }
+
+  private ensureTreeStructure(): void {
     if (!this.workspace.tree) {
+      logger.debug('Building tree structure from files');
       this.workspace.tree = this.buildTree(this.workspace.files);
     }
+  }
 
+  private renderTreeContent(): void {
     if (!this.workspace.tree) return;
 
     const nodes = this.flattenTreeForDisplay(this.workspace.tree);
@@ -257,7 +289,9 @@ export class ExplorerManager {
 
     // Enable virtual scrolling for large trees (more than 100 items)
     const useVirtualScrolling = nodes.length > 100;
-    
+
+    logger.debug(`Rendering ${nodes.length} nodes, virtual scrolling: ${useVirtualScrolling}`);
+
     if (useVirtualScrolling) {
       this.renderVirtualTree();
     } else {
@@ -332,13 +366,13 @@ export class ExplorerManager {
       this.workspace.byPath.set(wf.path, wf);
     }
 
-    console.log('✅ Workspace populated:', { 
-      totalFiles: this.workspace.files.length, 
-      samplePaths: this.workspace.files.slice(0, 3).map(f => f.path) 
+    logger.info('Workspace populated:', {
+      totalFiles: this.workspace.files.length,
+      samplePaths: this.workspace.files.slice(0, 3).map(f => f.path)
     });
 
     track('workspace:set', { source, fileCount: this.workspace.files.length, name: this.workspace.name });
-    console.log('🎯 About to call renderTree with', this.workspace.files.length, 'files');
+    logger.debug('Calling renderTree with', this.workspace.files.length, 'files');
     this.renderTree();
     this.saveWorkspaceSession();
   }
@@ -481,22 +515,26 @@ export class ExplorerManager {
     });
   }
 
-  // Debug helpers
+  // Debug helpers - only available in debug mode
   setupDebugHelpers(): void {
+    if (!DEBUG_CONFIG.enabled) return;
+
     (window as any).__debugWorkspace = () => {
-      console.log('🔍 Current workspace state:', {
+      const workspaceState = {
         name: this.workspace.name,
         fileCount: this.workspace.files.length,
         files: this.workspace.files.map(f => ({ path: f.path, size: f.size })),
         tree: this.workspace.tree ? 'exists' : 'null',
         byPath: this.workspace.byPath.size + ' entries'
-      });
+      };
+      logger.info('Current workspace state:', workspaceState);
+      return workspaceState;
     };
 
     (window as any).__debugUI = () => {
       const emptyEl = document.getElementById('explorerEmptyState');
       const treeEl = document.getElementById('fileTree');
-      console.log('🎨 UI Elements state:', {
+      const uiState = {
         emptyState: {
           exists: !!emptyEl,
           hidden: emptyEl?.hidden,
@@ -510,7 +548,9 @@ export class ExplorerManager {
           visible: treeEl && !treeEl.hidden && treeEl.style.display !== 'none',
           hasContent: (treeEl?.innerHTML?.length || 0) > 0
         }
-      });
+      };
+      logger.info('UI Elements state:', uiState);
+      return uiState;
     };
   }
 }

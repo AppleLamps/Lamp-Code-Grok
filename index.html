@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://openrouter.ai; font-src 'self' data:; script-src 'self';">
     <title>LampCode IDE</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="/node_modules/@fortawesome/fontawesome-free/css/all.min.css">
+    <!-- Font Awesome for icons - imported via bundler in main.ts -->
 </head>
 <body>
 
@@ -118,7 +118,7 @@
                 <div>
                     <strong>Security Notice:</strong> API keys are encrypted in browser storage but visible in memory. 
                     For production use, consider using a server-side proxy to protect your API keys.
-                    <a href="#" onclick="alert('For production, implement a backend proxy that stores API keys securely and forwards requests to OpenRouter. This prevents exposing keys to client-side code.'); return false;">Learn more</a>
+                    <a href="#" id="securityLearnMoreLink">Learn more</a>
                 </div>
             </div>
             

@@ -1,22 +1,24 @@
 // UI utilities, modal management, and keyboard shortcuts module
 import { loadPanelSizes, savePanelSizes } from './storage.js';
+import {
+  UIManagerDependencies,
+  SettingsManagerInterface,
+  ChatManagerInterface,
+  ExplorerManagerInterface,
+  ContextManagerInterface
+} from './types.js';
 
 export class UIManager {
-  private settingsManager: any;
-  private chatManager: any;
-  private explorerManager: any;
-  private contextManager: any;
+  private settingsManager: SettingsManagerInterface | null = null;
+  private chatManager: ChatManagerInterface | null = null;
+  private explorerManager: ExplorerManagerInterface | null = null;
+  private contextManager: ContextManagerInterface | null = null;
 
   constructor() {
     // Dependencies will be injected after creation
   }
 
-  setDependencies(deps: {
-    settingsManager: any;
-    chatManager: any;
-    explorerManager: any;
-    contextManager: any;
-  }): void {
+  setDependencies(deps: UIManagerDependencies): void {
     this.settingsManager = deps.settingsManager;
     this.chatManager = deps.chatManager;
     this.explorerManager = deps.explorerManager;
@@ -232,8 +234,109 @@ export class UIManager {
   init(): void {
     this.initKeyboardShortcuts();
     this.initPanelResizing();
-    
+    this.initResponsiveHeaders();
+
     // Auto-focus chat input when app loads
     setTimeout(() => this.focusChatInput(), 100);
+  }
+
+  private initResponsiveHeaders(): void {
+    // Set up ResizeObserver to monitor panel width changes
+    if ('ResizeObserver' in window) {
+      const leftPanel = document.querySelector('.left-panel') as HTMLElement;
+      const rightPanel = document.querySelector('.right-panel') as HTMLElement;
+
+      if (leftPanel) {
+        const leftResizeObserver = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            this.updateHeaderResponsiveness(entry.target as HTMLElement, entry.contentRect.width);
+          }
+        });
+        leftResizeObserver.observe(leftPanel);
+      }
+
+      if (rightPanel) {
+        const rightResizeObserver = new ResizeObserver((entries) => {
+          for (const entry of entries) {
+            this.updateHeaderResponsiveness(entry.target as HTMLElement, entry.contentRect.width);
+          }
+        });
+        rightResizeObserver.observe(rightPanel);
+      }
+    } else {
+      // Fallback for browsers without ResizeObserver
+      this.initResponsiveHeadersFallback();
+    }
+  }
+
+  private updateHeaderResponsiveness(panel: HTMLElement, width: number): void {
+    const header = panel.querySelector('.panel-header') as HTMLElement;
+    if (!header) return;
+
+    // Define breakpoints for different responsive states
+    const isNarrow = width < 280;
+    const isVeryNarrow = width < 220;
+
+    // Update header attributes for CSS targeting
+    if (isVeryNarrow) {
+      header.setAttribute('data-narrow', 'very');
+    } else if (isNarrow) {
+      header.setAttribute('data-narrow', 'true');
+    } else {
+      header.removeAttribute('data-narrow');
+    }
+
+    // Update button text visibility
+    const buttons = header.querySelectorAll('.action-btn.small');
+    buttons.forEach((button) => {
+      const btn = button as HTMLElement;
+      if (isVeryNarrow) {
+        btn.classList.add('icon-only');
+        btn.setAttribute('data-original-text', btn.textContent?.trim() || '');
+        // Keep only the icon, remove text content
+        const icon = btn.querySelector('i');
+        if (icon) {
+          btn.innerHTML = '';
+          btn.appendChild(icon);
+        }
+      } else if (isNarrow) {
+        btn.classList.add('compact');
+      } else {
+        btn.classList.remove('icon-only', 'compact');
+        // Restore original text if it was hidden
+        const originalText = btn.getAttribute('data-original-text');
+        if (originalText && !btn.textContent?.includes(originalText)) {
+          const icon = btn.querySelector('i');
+          btn.textContent = originalText;
+          if (icon) {
+            btn.insertBefore(icon, btn.firstChild);
+          }
+        }
+      }
+    });
+  }
+
+  private initResponsiveHeadersFallback(): void {
+    // Fallback using window resize events and manual width checking
+    const checkResponsiveness = () => {
+      const leftPanel = document.querySelector('.left-panel') as HTMLElement;
+      const rightPanel = document.querySelector('.right-panel') as HTMLElement;
+
+      if (leftPanel) {
+        this.updateHeaderResponsiveness(leftPanel, leftPanel.offsetWidth);
+      }
+      if (rightPanel) {
+        this.updateHeaderResponsiveness(rightPanel, rightPanel.offsetWidth);
+      }
+    };
+
+    // Check on window resize
+    window.addEventListener('resize', checkResponsiveness);
+
+    // Initial check
+    setTimeout(checkResponsiveness, 100);
+
+    // Periodic check for manual resizing
+    setInterval(checkResponsiveness, 1000);
   }
 }

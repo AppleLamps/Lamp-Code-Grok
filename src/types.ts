@@ -105,6 +105,74 @@ export interface EventLogEntry {
   [key: string]: unknown;
 }
 
+// Monaco Editor types
+export interface MonacoEditor {
+  dispose(): void;
+  onDidChangeModelContent(listener: () => void): void;
+  getValue(): string;
+  setValue(value: string): void;
+  getModel(): any;
+  setModel(model: any): void;
+  focus(): void;
+  layout(): void;
+}
+
+export interface MonacoEnvironment {
+  getWorker(workerId: string, label: string): Worker;
+}
+
+// Manager interface types for dependency injection
+export interface SettingsManagerInterface {
+  openSettingsModal(): void;
+  closeSettingsModal(): void;
+  getApiKey(): string;
+  getModel(): string;
+}
+
+export interface ChatManagerInterface {
+  clearHistory(): void;
+  sendMessage(message: string): Promise<void>;
+  renderInitialMessages(): void;
+  setupEventListeners(): void;
+}
+
+export interface ExplorerManagerInterface {
+  getWorkspace(): Workspace;
+  setEditorManager(editorManager: any): void;
+  loadWorkspaceSession(): boolean;
+  renderTree(): void;
+  setupEventListeners(): void;
+  setupDebugHelpers(): void;
+}
+
+export interface ContextManagerInterface {
+  openContextModal(): void;
+  buildContextMessage(): ContextMessage;
+  initializeSelection(): void;
+  setupEventListeners(): void;
+}
+
+export interface UIManagerDependencies {
+  settingsManager: SettingsManagerInterface;
+  chatManager: ChatManagerInterface;
+  explorerManager: ExplorerManagerInterface;
+  contextManager: ContextManagerInterface;
+}
+
+// Debug configuration
+export interface DebugConfig {
+  enabled: boolean;
+  logLevel: 'error' | 'warn' | 'info' | 'debug';
+}
+
+// Event tracking with proper typing
+export interface TrackingEvent {
+  id: string;
+  ts: number;
+  type: string;
+  details: Record<string, unknown>;
+}
+
 // Constants
 export const LS_KEYS = {
   settings: 'openrouter_settings',
@@ -144,4 +212,10 @@ export const VALIDATION_RULES: Record<string, ValidationRule> = {
     maxLength: 100,
     message: 'Title must be 100 characters or less'
   }
+};
+
+// Debug configuration
+export const DEBUG_CONFIG: DebugConfig = {
+  enabled: process.env.NODE_ENV !== 'production',
+  logLevel: process.env.NODE_ENV === 'production' ? 'error' : 'debug'
 };

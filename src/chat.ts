@@ -6,6 +6,16 @@ import { loadHistory, saveHistory } from './storage.js';
 import { el } from './utils.js';
 import type { SettingsManager } from './settings.js';
 
+// Configure DOMPurify to add security attributes to links
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A') {
+    node.setAttribute('rel', 'noopener noreferrer');
+    if (!node.getAttribute('target')) {
+      node.setAttribute('target', '_blank');
+    }
+  }
+});
+
 // Configure marked for safe rendering
 marked.setOptions({
   breaks: true,
@@ -16,6 +26,49 @@ marked.setOptions({
 const renderMarkdown = (content: string): string => {
   const html = marked.parse(content);
   return DOMPurify.sanitize(html);
+};
+
+// Add copy functionality to code blocks
+const addCopyButtons = (element: HTMLElement): void => {
+  const preElements = element.querySelectorAll('pre');
+  preElements.forEach((pre) => {
+    // Skip if already has a copy button
+    if (pre.querySelector('.copy-button')) return;
+
+    // Wrap pre in a container
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block-wrapper';
+    pre.parentNode?.insertBefore(wrapper, pre);
+    wrapper.appendChild(pre);
+
+    // Create copy button
+    const copyButton = document.createElement('button');
+    copyButton.className = 'copy-button';
+    copyButton.textContent = 'Copy';
+    copyButton.setAttribute('aria-label', 'Copy code to clipboard');
+
+    // Add click handler
+    copyButton.addEventListener('click', async () => {
+      const code = pre.textContent || '';
+      try {
+        await navigator.clipboard.writeText(code);
+        copyButton.textContent = 'Copied!';
+        copyButton.classList.add('copied');
+        setTimeout(() => {
+          copyButton.textContent = 'Copy';
+          copyButton.classList.remove('copied');
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy code:', err);
+        copyButton.textContent = 'Failed';
+        setTimeout(() => {
+          copyButton.textContent = 'Copy';
+        }, 2000);
+      }
+    });
+
+    wrapper.appendChild(copyButton);
+  });
 };
 
 export class ChatManager {
@@ -36,21 +89,23 @@ export class ChatManager {
   private renderMessages(): void {
     const chatMessagesEl = document.getElementById('chatMessages');
     if (!chatMessagesEl) return;
-    
+
     chatMessagesEl.innerHTML = '';
     for (const m of this.messages) {
       const wrapper = el('div', `message ${m.role}`);
       const meta = el('div', 'meta', `${m.role} • ${new Date(m.ts).toLocaleTimeString()}`);
       const body = el('div');
-      
+
       // Render markdown for assistant messages, plain text for others
       if (m.role === 'assistant') {
         body.innerHTML = renderMarkdown(m.content);
         body.classList.add('markdown-content');
+        // Add copy buttons to code blocks
+        addCopyButtons(body);
       } else {
         body.textContent = m.content;
       }
-      
+
       wrapper.appendChild(meta);
       wrapper.appendChild(body);
       chatMessagesEl.appendChild(wrapper);
