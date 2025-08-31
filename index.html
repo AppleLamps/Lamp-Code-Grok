@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LampCode IDE</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="/node_modules/@fortawesome/fontawesome-free/css/all.min.css">
+</head>
+<body>
+
+    <div class="app-container" role="main">
+
+        <!-- Left Panel: Chat (OpenRouter) -->
+        <aside class="left-panel chat-panel" role="complementary" aria-label="Chat panel">
+            <header class="panel-header" role="banner">
+                <div class="header-left">
+                    <h1 aria-level="1" aria-label="Chat with AI">Chat</h1>
+                    <span class="breadcrumb" aria-label="Current model">OpenRouter • Grok Code</span>
+                </div>
+                <div class="header-right" role="toolbar" aria-label="Chat controls">
+                    <button id="toggleContextBtn" class="action-btn small" title="Toggle sending file contents as context" aria-pressed="true" aria-label="Context toggle">Context: On</button>
+                    <button id="previewContextBtn" class="action-btn small" title="Preview and select context files (Ctrl+I)" aria-label="Preview context">Preview</button>
+                    <button id="openSettingsBtn" class="action-btn small" title="Settings (Ctrl+/)" aria-label="Open settings"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>
+                    <button id="clearChatBtn" class="action-btn small" title="Clear chat (Ctrl+K)" aria-label="Clear chat history"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
+                </div>
+            </header>
+
+            <main class="panel-content chat-content" role="log" aria-live="polite" aria-label="Chat messages">
+                <div id="chatMessages" class="chat-messages" aria-live="polite" aria-relevant="additions text"></div>
+            </main>
+
+            <footer class="panel-footer chat-footer" role="contentinfo">
+                <form id="chatForm" class="chat-form" role="form" aria-label="Send message to AI">
+                    <label for="chatInput" class="sr-only">Enter your message</label>
+                    <textarea id="chatInput" class="chat-textarea" rows="2" placeholder="Ask about your codebase... (Ctrl+Enter to send)" required aria-label="Message input" aria-describedby="usageInfo"></textarea>
+                    <div class="chat-controls" role="group" aria-label="Chat actions">
+                        <span id="usageInfo" class="usage-info" aria-live="polite" aria-label="Token usage information"></span>
+                        <button id="sendBtn" class="action-btn primary" type="submit" aria-label="Send message"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i> Send</button>
+                        <button id="cancelBtn" class="action-btn" type="button" disabled aria-label="Stop message generation"><i class="fa-solid fa-stop" aria-hidden="true"></i> Stop</button>
+                    </div>
+                </form>
+            </footer>
+            <!-- Resize handle for left panel -->
+            <div class="resize-handle resize-handle-left" id="leftResizeHandle"></div>
+        </aside>
+
+        <!-- Center Panel: Main Editor -->
+        <main class="center-panel" role="main" aria-label="Main workspace">
+            <div class="welcome-screen">
+                <h2 aria-level="1">LampCode</h2>
+                <div class="shortcuts" role="region" aria-label="Keyboard shortcuts">
+                    <div class="shortcut-item">
+                        <span>Code with Lamper</span>
+                        <div class="keys" aria-label="Keyboard shortcut">
+                            <kbd aria-label="Control">Ctrl</kbd> + <kbd aria-label="L key">L</kbd>
+                        </div>
+                    </div>
+                    <div class="shortcut-item">
+                        <span>Edit code inline</span>
+                        <div class="keys" aria-label="Keyboard shortcut">
+                            <kbd aria-label="Control">Ctrl</kbd> + <kbd aria-label="I key">I</kbd>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Right Panel: File Explorer -->
+        <aside class="right-panel" role="complementary" aria-label="File explorer">
+            <!-- Resize handle for right panel -->
+            <div class="resize-handle resize-handle-right" id="rightResizeHandle"></div>
+            <header class="panel-header explorer-header" role="banner">
+                <h2 aria-level="2">Explorer</h2>
+                <div class="header-right" role="toolbar" aria-label="Explorer controls">
+                    <button id="openFolderBtn" class="action-btn small" title="Open Folder (Ctrl+O)" aria-label="Open folder"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> Open Folder</button>
+                    <button class="icon-btn" title="Refresh" aria-label="Refresh explorer"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i></button>
+                </div>
+            </header>
+
+            <main class="panel-content" role="region" aria-label="File browser">
+                <div id="explorerEmptyState" class="empty-state" role="status" aria-live="polite">
+                    <div class="empty-icon" aria-hidden="true"><i class="fa-regular fa-folder-open"></i></div>
+                    <h3>No folder open</h3>
+                    <p>Drag and drop a folder here, or use Open Folder to get started.</p>
+                    <div class="empty-actions" role="group" aria-label="File import options">
+                        <button id="emptyOpenFolderBtn" class="action-btn" aria-label="Open folder from computer"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> Open Folder</button>
+                        <label class="action-btn" id="uploadFilesLabel" aria-label="Upload individual files">
+                            <i class="fa-solid fa-file-arrow-up" aria-hidden="true"></i> Upload Files
+                            <input id="uploadFilesInput" type="file" multiple hidden aria-label="Select files to upload">
+                        </label>
+                    </div>
+                    <div class="dropzone" id="explorerDropzone" aria-label="Drop files or a folder here" role="button" tabindex="0">
+                        Drop files or a folder here
+                    </div>
+                </div>
+                <nav id="fileTree" class="file-tree" hidden role="tree" aria-label="File tree navigation"></nav>
+                <input id="folderInput" type="file" webkitdirectory directory multiple hidden aria-label="Select folder">
+            </main>
+
+            <footer class="panel-footer" role="contentinfo">
+                <button class="collapsible-section" role="button" aria-expanded="false" aria-controls="outline-content" aria-label="Outline section"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i> Outline</button>
+                <button class="collapsible-section" role="button" aria-expanded="false" aria-controls="timeline-content" aria-label="Timeline section"><i class="fa-solid fa-chevron-right" aria-hidden="true"></i> Timeline</button>
+            </footer>
+        </aside>
+
+    </div>
+    
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-describedby="settings-description">
+        <div class="modal-content">
+            <h3 id="settings-title">OpenRouter Settings</h3>
+            <p id="settings-description" class="sr-only">Configure your OpenRouter API connection settings</p>
+            
+            <div class="security-notice">
+                <i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i>
+                <div>
+                    <strong>Security Notice:</strong> API keys are encrypted in browser storage but visible in memory. 
+                    For production use, consider using a server-side proxy to protect your API keys.
+                    <a href="#" onclick="alert('For production, implement a backend proxy that stores API keys securely and forwards requests to OpenRouter. This prevents exposing keys to client-side code.'); return false;">Learn more</a>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="openrouterKey">API Key *</label>
+                <input id="openrouterKey" type="password" placeholder="sk-or-v1-..." aria-required="true" aria-describedby="key-help" />
+                <div id="key-help" class="field-help">Enter your OpenRouter API key starting with sk-or-v1</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="openrouterReferer">HTTP-Referer (optional)</label>
+                <input id="openrouterReferer" type="url" placeholder="https://your-site.example" aria-describedby="referer-help" />
+                <div id="referer-help" class="field-help">Optional HTTP referer header for API requests</div>
+            </div>
+            
+            <div class="form-group">
+                <label for="openrouterTitle">X-Title (optional)</label>
+                <input id="openrouterTitle" type="text" placeholder="Your Site Name" aria-describedby="title-help" maxlength="100" />
+                <div id="title-help" class="field-help">Optional title header for API requests (max 100 characters)</div>
+            </div>
+            
+            <div class="modal-actions" role="group" aria-label="Settings actions">
+                <button id="saveSettingsBtn" class="action-btn primary" aria-label="Save settings and close">Save</button>
+                <button id="closeSettingsBtn" class="action-btn" aria-label="Close without saving">Close</button>
+            </div>
+        </div>
+        <div class="modal-backdrop" aria-hidden="true"></div>
+    </div>
+
+    <!-- Context Preview Modal -->
+    <div id="contextModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="context-title" aria-describedby="context-description">
+        <div class="modal-content">
+            <h3 id="context-title">Context Preview</h3>
+            <p id="context-description" class="sr-only">Select which files to include as context for the AI</p>
+            
+            <div id="contextSummary" class="context-summary" aria-live="polite" aria-label="Context selection summary"></div>
+            <div id="contextList" class="context-list" role="group" aria-label="File selection list"></div>
+            
+            <div class="modal-actions" role="group" aria-label="Context actions">
+                <button id="saveContextSelectionBtn" class="action-btn primary" aria-label="Save file selection">Save Selection</button>
+                <button id="closeContextBtn" class="action-btn" aria-label="Close without saving">Close</button>
+            </div>
+        </div>
+        <div class="modal-backdrop" aria-hidden="true"></div>
+    </div>
+    
+    <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
