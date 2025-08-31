@@ -5,6 +5,41 @@ import { ChatMessage, ContextMessage, ContextStats } from './types.js';
 import { loadHistory, saveHistory } from './storage.js';
 import { el } from './utils.js';
 import type { SettingsManager } from './settings.js';
+import type { ExplorerManager } from './explorer.js';
+
+// JSON Schema for file operations using OpenRouter's Structured Outputs
+const FILE_OPERATIONS_SCHEMA = {
+  name: 'file_operations',
+  strict: true,
+  schema: {
+    type: 'object',
+    properties: {
+      operations: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            operation: {
+              type: 'string',
+              enum: ['create_file', 'edit_file', 'delete_file'],
+              description: "The type of file operation to perform."
+            },
+            path: {
+              type: 'string',
+              description: "The full path of the file to operate on."
+            },
+            content: {
+              type: 'string',
+              description: "The file content. Required for 'create_file' and 'edit_file'."
+            }
+          },
+          required: ['operation', 'path']
+        }
+      }
+    },
+    required: ['operations']
+  }
+};
 
 // Configure DOMPurify to add security attributes to links
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {
@@ -75,15 +110,99 @@ export class ChatManager {
   private messages: ChatMessage[] = [];
   private abortController: AbortController | null = null;
   private settingsManager: SettingsManager;
+  private explorerManager: ExplorerManager;
   private contextProvider: (() => { contextMessage?: ContextMessage; contextStats?: ContextStats }) | null = null;
 
-  constructor(settingsManager: SettingsManager) {
+  constructor(settingsManager: SettingsManager, explorerManager: ExplorerManager) {
     this.settingsManager = settingsManager;
+    this.explorerManager = explorerManager;
     this.messages = loadHistory();
   }
 
   setContextProvider(provider: () => { contextMessage?: ContextMessage; contextStats?: ContextStats }): void {
     this.contextProvider = provider;
+  }
+
+  // Parse and execute file operations from structured JSON output
+  private async executeFileOperations(content: string): Promise<boolean> {
+    try {
+      // Validate content is a non-empty string
+      if (!content || typeof content !== 'string' || content.trim().length === 0) {
+        console.error('Invalid content provided to executeFileOperations');
+        return false;
+      }
+
+      // The content is now a clean JSON string from structured output
+      const parsedContent = JSON.parse(content);
+
+      // Validate parsed content structure
+      if (!parsedContent || typeof parsedContent !== 'object') {
+        console.error('Parsed content is not a valid object');
+        return false;
+      }
+
+      const ops = parsedContent.operations; // Access the 'operations' array
+
+      // Additional validation for operations array
+      if (!Array.isArray(ops)) {
+        console.error('Operations is not an array');
+        return false;
+      }
+
+      // Validate each operation has required fields
+      for (const op of ops) {
+        if (!op || typeof op !== 'object' || !op.operation || !op.path) {
+          console.error('Invalid operation structure:', op);
+          return false;
+        }
+
+        // Validate operation type
+        if (!['create_file', 'edit_file', 'delete_file'].includes(op.operation)) {
+          console.error('Unknown operation type:', op.operation);
+          return false;
+        }
+
+        // Validate path is a string and doesn't contain dangerous characters
+        if (typeof op.path !== 'string' || op.path.includes('..') || op.path.startsWith('/')) {
+          console.error('Invalid path:', op.path);
+          return false;
+        }
+
+        // For create_file and edit_file, validate content exists
+        if ((op.operation === 'create_file' || op.operation === 'edit_file') && typeof op.content !== 'string') {
+          console.error('Missing or invalid content for operation:', op.operation);
+          return false;
+        }
+      }
+
+      // First, save the current state for undo functionality
+      this.explorerManager.backupWorkspaceState();
+
+      for (const op of ops) {
+        switch (op.operation) {
+          case 'create_file':
+            await this.explorerManager.createFile(op.path, op.content || '');
+            break;
+          case 'edit_file':
+            await this.explorerManager.updateFileContent(op.path, op.content || '');
+            break;
+          case 'delete_file':
+            await this.explorerManager.deleteFile(op.path);
+            break;
+          default:
+            console.warn(`Unknown operation: ${op.operation}`);
+        }
+      }
+
+      // Re-render the file tree to show changes
+      this.explorerManager.renderTree();
+      console.log('File operations executed successfully.');
+      return true;
+    } catch (error) {
+      console.error('Failed to parse or execute file operations:', error);
+      // Don't restore state on parsing error as nothing was changed
+      return false;
+    }
   }
 
   private renderMessages(): void {
@@ -226,15 +345,15 @@ You are working with a codebase context system that may provide you with relevan
 
     // Create system message
     const systemMessage = { role: 'system' as const, content: this.createSystemPrompt() };
-    
+
     // Get conversation history (exclude any existing system messages)
     const historyMessages = this.messages
       .filter(m => m.role !== 'system')
       .map(m => ({ role: m.role, content: m.content }));
-    
+
     // Build context message with enhanced instructions
     const { contextMessage, contextStats } = this.contextProvider ? this.contextProvider() : {};
-    
+
     // Construct final message array: system prompt first, then history, then context, then user message
     const requestMessages = [systemMessage];
     requestMessages.push(...historyMessages);
@@ -246,12 +365,29 @@ You are working with a codebase context system that may provide you with relevan
     if (contextStats)
       this.setUsage(`ctx: ${contextStats.selected} files, ~${contextStats.tokens} tokens${contextStats.truncated > 0 ? `, truncated ${contextStats.truncated}` : ''}`);
 
+    // Check if this is a file modification request
+    const isFileModificationRequest = userText.toLowerCase().includes('create file')
+        || userText.toLowerCase().includes('edit file')
+        || userText.toLowerCase().includes('delete file')
+        || userText.toLowerCase().includes('add file')
+        || userText.toLowerCase().includes('modify file')
+        || userText.toLowerCase().includes('update file')
+        || userText.toLowerCase().includes('remove file');
+
     const payload = {
       model,
       messages: requestMessages,
       stream: true,
       usage: { include: true },
     } as any;
+
+    // Add structured output for file operations
+    if (isFileModificationRequest) {
+      payload.response_format = {
+        type: "json_schema",
+        json_schema: FILE_OPERATIONS_SCHEMA
+      };
+    }
 
     this.abortController = new AbortController();
     this.setBusy(true);
@@ -303,7 +439,26 @@ You are working with a codebase context system that may provide you with relevan
       this.pushMessage('system', `Error: ${err?.message || String(err)}`);
     } finally {
       this.setBusy(false);
-      this.abortController = null;
+      // Ensure AbortController is properly cleaned up
+      if (this.abortController) {
+        this.abortController.abort();
+        this.abortController = null;
+      }
+
+      // After stream is complete, check for and execute file operations
+      const lastMessage = this.messages[this.messages.length - 1];
+      if (lastMessage && lastMessage.role === 'assistant') {
+        // Check if the content is likely a JSON string of operations
+        if (lastMessage.content.trim().startsWith('{')) {
+          const wasExecuted = await this.executeFileOperations(lastMessage.content);
+          if (wasExecuted) {
+            // Replace the JSON response with a user-friendly confirmation
+            lastMessage.content = "I have applied the file changes as requested.";
+            this.renderMessages();
+            saveHistory(this.messages);
+          }
+        }
+      }
     }
   }
 

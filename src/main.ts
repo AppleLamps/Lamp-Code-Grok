@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const settingsManager = new SettingsManager();
   const explorerManager = new ExplorerManager();
   const contextManager = new ContextManager(explorerManager.getWorkspace());
-  const chatManager = new ChatManager(settingsManager);
+  const chatManager = new ChatManager(settingsManager, explorerManager);
   const uiManager = new UIManager();
   const editorManager = new EditorManager();
 

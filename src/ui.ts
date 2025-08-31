@@ -1,5 +1,6 @@
 // UI utilities, modal management, and keyboard shortcuts module
 import { loadPanelSizes, savePanelSizes } from './storage.js';
+import JSZip from 'jszip';
 import {
   UIManagerDependencies,
   SettingsManagerInterface,
@@ -27,54 +28,61 @@ export class UIManager {
 
   initKeyboardShortcuts(): void {
     document.addEventListener('keydown', (e) => {
-      // Don't trigger shortcuts when typing in inputs/textareas (except Ctrl+Enter)
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      // Don't trigger shortcuts when typing in inputs/textareas (except specific cases)
+      const isInput = e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement;
+
+      if (isInput) {
         // Allow Ctrl+Enter to send message from chat input
         if (e.ctrlKey && e.key === 'Enter' && e.target.id === 'chatInput') {
           e.preventDefault();
+          e.stopPropagation();
           const chatForm = document.getElementById('chatForm');
           const event = new Event('submit', { bubbles: true, cancelable: true });
           chatForm?.dispatchEvent(event);
           return;
         }
+        // Allow other shortcuts in inputs if they're not conflicting
+        if (!this.isConflictingShortcut(e)) {
+          return;
+        }
         return;
+      }
+
+      // Prevent default for all our shortcuts to avoid browser conflicts
+      if (this.isOurShortcut(e)) {
+        e.preventDefault();
+        e.stopPropagation();
       }
 
       // Global shortcuts
       switch (true) {
         // Ctrl+L: Focus chat input (Code with Lamper)
         case e.ctrlKey && e.key === 'l':
-          e.preventDefault();
           this.focusChatInput();
           break;
 
         // Ctrl+I: Focus context preview (Edit code inline equivalent)
         case e.ctrlKey && e.key === 'i':
-          e.preventDefault();
           this.contextManager?.openContextModal();
           break;
 
         // Ctrl+/: Open settings
         case e.ctrlKey && e.key === '/':
-          e.preventDefault();
           this.settingsManager?.openSettingsModal();
           break;
 
         // Ctrl+K: Clear chat
         case e.ctrlKey && e.key === 'k':
-          e.preventDefault();
           this.chatManager?.clearHistory();
           break;
 
         // Ctrl+O: Open folder
         case e.ctrlKey && e.key === 'o':
-          e.preventDefault();
           this.triggerOpenFolder();
           break;
 
         // Escape: Close modals or focus chat input
         case e.key === 'Escape':
-          e.preventDefault();
           const openModal = document.querySelector('.modal:not([hidden])');
           if (openModal) {
             openModal.setAttribute('hidden', '');
@@ -85,7 +93,6 @@ export class UIManager {
 
         // Ctrl+Enter: Send message (global)
         case e.ctrlKey && e.key === 'Enter':
-          e.preventDefault();
           const sendBtn = document.getElementById('sendBtn') as HTMLButtonElement;
           if (!sendBtn?.disabled) {
             const chatForm = document.getElementById('chatForm');
@@ -95,6 +102,29 @@ export class UIManager {
           break;
       }
     });
+  }
+
+  private isOurShortcut(e: KeyboardEvent): boolean {
+    // Check if this is one of our defined shortcuts
+    return (
+      (e.ctrlKey && e.key === 'l') ||
+      (e.ctrlKey && e.key === 'i') ||
+      (e.ctrlKey && e.key === '/') ||
+      (e.ctrlKey && e.key === 'k') ||
+      (e.ctrlKey && e.key === 'o') ||
+      (e.ctrlKey && e.key === 'Enter') ||
+      (e.key === 'Escape')
+    );
+  }
+
+  private isConflictingShortcut(e: KeyboardEvent): boolean {
+    // Define shortcuts that might conflict with browser/system shortcuts
+    // These should be prevented even in input fields
+    return (
+      (e.ctrlKey && e.key === 'l') || // Browser location bar
+      (e.ctrlKey && e.key === 'k') || // Browser search
+      (e.ctrlKey && e.key === 'o')    // Browser open file
+    );
   }
 
   private focusChatInput(): void {
@@ -236,6 +266,22 @@ export class UIManager {
     this.initPanelResizing();
     this.initResponsiveHeaders();
 
+    // Connect the new file button
+    const newFileBtn = document.getElementById('newFileBtn');
+    newFileBtn?.addEventListener('click', () => {
+      this.explorerManager?.showNewFileModal();
+    });
+
+    // Connect the new Undo button
+    const undoBtn = document.getElementById('undoChangesBtn');
+    undoBtn?.addEventListener('click', () => {
+      this.explorerManager?.restoreWorkspaceState();
+    });
+
+    // Connect the new Download ZIP button
+    const downloadBtn = document.getElementById('downloadZipBtn');
+    downloadBtn?.addEventListener('click', () => this.downloadWorkspaceAsZip());
+
     // Auto-focus chat input when app loads
     setTimeout(() => this.focusChatInput(), 100);
   }
@@ -338,5 +384,29 @@ export class UIManager {
 
     // Periodic check for manual resizing
     setInterval(checkResponsiveness, 1000);
+  }
+
+  private async downloadWorkspaceAsZip(): Promise<void> {
+    const workspace = this.explorerManager?.getWorkspace();
+    if (!workspace || workspace.files.length === 0) {
+      alert('Workspace is empty. Nothing to download.');
+      return;
+    }
+
+    const zip = new JSZip();
+    workspace.files.forEach(file => {
+      // Use file.text if available, otherwise it will be an empty file
+      zip.file(file.path, file.text || '');
+    });
+
+    zip.generateAsync({ type: 'blob' }).then(content => {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(content);
+      const workspaceName = workspace.name || 'lampcode-workspace';
+      link.download = `${workspaceName}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    });
   }
 }

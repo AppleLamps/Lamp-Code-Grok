@@ -36,19 +36,25 @@ export class EditorManager {
       // Configure Monaco Editor workers for Vite
       const monacoEnvironment: MonacoEnvironment = {
         getWorker(_workerId: string, label: string): Worker {
-          if (label === 'json') {
-            return new jsonWorker();
+          try {
+            if (label === 'json') {
+              return new jsonWorker();
+            }
+            if (label === 'css' || label === 'scss' || label === 'less') {
+              return new cssWorker();
+            }
+            if (label === 'html' || label === 'handlebars' || label === 'razor') {
+              return new htmlWorker();
+            }
+            if (label === 'typescript' || label === 'javascript') {
+              return new tsWorker();
+            }
+            return new editorWorker();
+          } catch (error) {
+            console.error('Failed to load Monaco worker:', label, error);
+            // Fallback to editor worker for any failed loads
+            return new editorWorker();
           }
-          if (label === 'css' || label === 'scss' || label === 'less') {
-            return new cssWorker();
-          }
-          if (label === 'html' || label === 'handlebars' || label === 'razor') {
-            return new htmlWorker();
-          }
-          if (label === 'typescript' || label === 'javascript') {
-            return new tsWorker();
-          }
-          return new editorWorker();
         },
       };
 
@@ -319,9 +325,21 @@ export class EditorManager {
       wordWrap: 'on',
       readOnly: false,
       folding: true,
-      lineDecorationsWidth: 20,
-      lineNumbersMinChars: 3,
-      glyphMargin: false
+      // Compact gutter settings for VS Code-like appearance
+      lineDecorationsWidth: 6,        // Reduced from 20 to 6 (minimal space for decorations)
+      lineNumbersMinChars: 2,         // Reduced from 3 to 2 (auto-adjusts based on content)
+      glyphMargin: false,             // Keep disabled to save space
+      // Additional compact settings
+      overviewRulerBorder: false,     // Remove border on overview ruler
+      hideCursorInOverviewRuler: true, // Hide cursor indicator in overview ruler
+      overviewRulerLanes: 2,          // Reduce overview ruler lanes
+      // Improved scrollbar appearance
+      scrollbar: {
+        vertical: 'auto',
+        horizontal: 'auto',
+        verticalScrollbarSize: 12,    // Thinner scrollbar
+        horizontalScrollbarSize: 12
+      }
     });
 
     // Listen for content changes

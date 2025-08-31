@@ -20,6 +20,7 @@ export class ExplorerManager {
   private workspace: Workspace;
   private virtualScrollState: VirtualScrollState;
   private editorManager: any = null; // Will be injected
+  private contextMenuTarget: string | null = null; // Track which file the context menu is for
 
   constructor() {
     this.workspace = {
@@ -190,37 +191,56 @@ export class ExplorerManager {
   private renderVirtualTree(): void {
     const fileTreeEl = document.getElementById('fileTree');
     if (!fileTreeEl) return;
-    
+
     this.updateVirtualScrollIndices();
-    
+
     const { itemHeight } = VIRTUAL_SCROLL_CONFIG;
     const { startIndex, endIndex, totalItems, flatNodes } = this.virtualScrollState;
-    
+
+    // Handle empty or small lists
+    if (totalItems === 0) {
+      fileTreeEl.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">No files to display</div>';
+      return;
+    }
+
+    // For small lists, use regular rendering to avoid virtual scrolling overhead
+    if (totalItems <= 50) {
+      this.renderRegularTree(flatNodes);
+      return;
+    }
+
     // Set container height to enable scrolling
     const totalHeight = totalItems * itemHeight;
     fileTreeEl.style.height = `${Math.min(totalHeight, 400)}px`; // Max height of 400px
     fileTreeEl.style.position = 'relative';
     fileTreeEl.style.overflowY = 'auto';
-    
+
     // Create virtual scroller wrapper
     fileTreeEl.innerHTML = '';
     const virtualContainer = document.createElement('div');
     virtualContainer.style.height = `${totalHeight}px`;
     virtualContainer.style.position = 'relative';
-    
-    // Render visible items
-    for (let i = startIndex; i <= endIndex; i++) {
-      if (i >= 0 && i < flatNodes.length) {
+
+    // Render visible items with bounds checking
+    const visibleItems = [];
+    for (let i = Math.max(0, startIndex); i <= Math.min(endIndex, flatNodes.length - 1); i++) {
+      if (flatNodes[i]) {
         const node = flatNodes[i];
         const li = this.createTreeItem(node);
         li.style.position = 'absolute';
         li.style.top = `${i * itemHeight}px`;
         li.style.width = '100%';
         li.style.height = `${itemHeight}px`;
-        virtualContainer.appendChild(li);
+        li.style.boxSizing = 'border-box';
+        visibleItems.push(li);
       }
     }
-    
+
+    // Batch DOM updates for better performance
+    const fragment = document.createDocumentFragment();
+    visibleItems.forEach(li => fragment.appendChild(li));
+    virtualContainer.appendChild(fragment);
+
     fileTreeEl.appendChild(virtualContainer);
   }
 
@@ -287,8 +307,9 @@ export class ExplorerManager {
     this.virtualScrollState.flatNodes = nodes;
     this.virtualScrollState.totalItems = nodes.length;
 
-    // Enable virtual scrolling for large trees (more than 100 items)
-    const useVirtualScrolling = nodes.length > 100;
+    // Enable virtual scrolling for large trees (more than 50 items)
+    // The renderVirtualTree method will handle the fallback logic internally
+    const useVirtualScrolling = nodes.length > 50;
 
     logger.debug(`Rendering ${nodes.length} nodes, virtual scrolling: ${useVirtualScrolling}`);
 
@@ -421,6 +442,7 @@ export class ExplorerManager {
   setupEventListeners(): void {
     const openFolderBtn = document.getElementById('openFolderBtn');
     const emptyOpenFolderBtn = document.getElementById('emptyOpenFolderBtn');
+    const newFileBtn = document.getElementById('newFileBtn');
     const folderInput = document.getElementById('folderInput') as HTMLInputElement;
     const uploadFilesInput = document.getElementById('uploadFilesInput') as HTMLInputElement;
     const dropzone = document.getElementById('explorerDropzone');
@@ -429,6 +451,9 @@ export class ExplorerManager {
     // Folder selection
     openFolderBtn?.addEventListener('click', () => this.triggerOpenFolder());
     emptyOpenFolderBtn?.addEventListener('click', () => this.triggerOpenFolder());
+
+    // New file button
+    newFileBtn?.addEventListener('click', () => this.showNewFileModal());
 
     // File inputs
     folderInput?.addEventListener('change', async (e) => {
@@ -500,19 +525,307 @@ export class ExplorerManager {
       }
     });
 
+    // Tree right-click handler for context menu
+    fileTreeEl?.addEventListener('contextmenu', (e) => {
+      const target = e.target as HTMLElement;
+      const treeItem = target.closest('.tree-item') as HTMLElement;
+      if (!treeItem) return;
+
+      const path = treeItem.dataset.path;
+      const isDir = treeItem.dataset.isDir === 'true';
+
+      // Only show context menu for files, not directories
+      if (!isDir && path) {
+        this.showContextMenu(e, path);
+      }
+    });
+
     // Virtual scroll handler
     fileTreeEl?.addEventListener('scroll', (e) => {
       const target = e.target as HTMLElement;
       this.virtualScrollState.scrollTop = target.scrollTop;
-      
+
       // Throttle re-rendering
       clearTimeout(this.virtualScrollState.scrollTimer);
       this.virtualScrollState.scrollTimer = setTimeout(() => {
-        if (this.virtualScrollState.totalItems > 100) {
+        if (this.virtualScrollState.totalItems > 50) {
           this.renderVirtualTree();
         }
       }, 16); // ~60fps
     });
+
+    // New file modal event listeners
+    const createFileBtn = document.getElementById('createFileBtn');
+    const cancelNewFileBtn = document.getElementById('cancelNewFileBtn');
+    const newFileNameInput = document.getElementById('newFileName') as HTMLInputElement;
+
+    createFileBtn?.addEventListener('click', () => this.createNewFileFromModal());
+    cancelNewFileBtn?.addEventListener('click', () => this.hideNewFileModal());
+
+    // Allow Enter key to create file
+    newFileNameInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.createNewFileFromModal();
+      } else if (e.key === 'Escape') {
+        this.hideNewFileModal();
+      }
+    });
+
+    // Context menu event listeners
+    const contextRenameBtn = document.getElementById('contextRenameFile');
+    const contextDeleteBtn = document.getElementById('contextDeleteFile');
+
+    contextRenameBtn?.addEventListener('click', () => this.renameFile());
+    contextDeleteBtn?.addEventListener('click', () => this.deleteFileWithConfirmation());
+
+    // Hide context menu when clicking elsewhere
+    document.addEventListener('click', (e) => {
+      const contextMenu = document.getElementById('fileContextMenu');
+      if (contextMenu && !contextMenu.contains(e.target as Node)) {
+        this.hideContextMenu();
+      }
+    });
+
+    // Hide new file modal when clicking backdrop
+    const newFileModal = document.getElementById('newFileModal');
+    newFileModal?.addEventListener('click', (e) => {
+      if (e.target === newFileModal) {
+        this.hideNewFileModal();
+      }
+    });
+  }
+
+  async createFile(path: string, content: string): Promise<void> {
+    if (this.workspace.byPath.has(path)) {
+      throw new Error(`File already exists at path: ${path}`);
+    }
+    const name = path.split('/').pop() || '';
+    const file: WorkspaceFile = {
+      path,
+      name,
+      isDir: false,
+      size: content.length,
+      text: content,
+      selected: true,
+      estTokens: estimateTokens(content)
+    };
+    this.workspace.files.push(file);
+    this.workspace.byPath.set(path, file);
+    this.workspace.tree = null; // Invalidate tree to force rebuild
+    this.saveWorkspaceSession();
+  }
+
+  async updateFileContent(path: string, newContent: string): Promise<void> {
+    const file = this.workspace.byPath.get(path);
+    if (!file) {
+      throw new Error(`File not found at path: ${path}`);
+    }
+    file.text = newContent;
+    file.size = newContent.length;
+    file.estTokens = estimateTokens(newContent);
+
+    // If the file is open in the editor, update it
+    if (this.editorManager) {
+        const openTabs = this.editorManager.getOpenTabs();
+        const openTab = openTabs.find((tab: any) => tab.file.path === path);
+        if(openTab) {
+            this.editorManager.openFile(file);
+        }
+    }
+    this.saveWorkspaceSession();
+  }
+
+  async deleteFile(path: string): Promise<void> {
+    if (!this.workspace.byPath.has(path)) {
+      throw new Error(`File not found at path: ${path}`);
+    }
+    this.workspace.files = this.workspace.files.filter(f => f.path !== path);
+    this.workspace.byPath.delete(path);
+
+    // Close the tab if it's open in the editor
+    if (this.editorManager) {
+        const openTabs = this.editorManager.getOpenTabs();
+        const openTab = openTabs.find((tab: any) => tab.file.path === path);
+        if(openTab) {
+            this.editorManager.closeFile(openTab.id);
+        }
+    }
+
+    this.workspace.tree = null; // Invalidate tree to force rebuild
+    this.saveWorkspaceSession();
+  }
+
+  backupWorkspaceState(): void {
+    const session: WorkspaceSession = {
+      name: this.workspace.name,
+      files: this.workspace.files,
+      tree: this.workspace.tree ? serializeTree(this.workspace.tree) : null,
+      timestamp: Date.now()
+    };
+    this.saveWorkspaceBackup(session);
+    const undoBtn = document.getElementById('undoChangesBtn') as HTMLButtonElement;
+    if (undoBtn) undoBtn.disabled = false;
+  }
+
+  restoreWorkspaceState(): void {
+    const backup = this.loadWorkspaceBackup();
+    if (backup) {
+      this.workspace.name = backup.name;
+      this.workspace.files = backup.files;
+      this.workspace.byPath.clear();
+      for (const file of this.workspace.files) {
+        this.workspace.byPath.set(file.path, file);
+      }
+      this.workspace.tree = backup.tree ? deserializeTree(backup.tree) : null;
+
+      this.renderTree();
+      this.saveWorkspaceSession();
+      this.clearWorkspaceBackup(); // Backup is a one-time use
+      const undoBtn = document.getElementById('undoChangesBtn') as HTMLButtonElement;
+      if (undoBtn) undoBtn.disabled = true;
+      console.log('Workspace state restored from backup.');
+    }
+  }
+
+  private saveWorkspaceBackup(session: WorkspaceSession): void {
+    try {
+      localStorage.setItem('lamp_workspace_backup_v1', JSON.stringify(session));
+    } catch (error) {
+      console.error('Failed to save workspace backup:', error);
+    }
+  }
+
+  private loadWorkspaceBackup(): WorkspaceSession | null {
+    try {
+      const raw = localStorage.getItem('lamp_workspace_backup_v1');
+      if (raw) return JSON.parse(raw) as WorkspaceSession;
+    } catch (error) {
+      console.warn('Failed to load workspace backup:', error);
+    }
+    return null;
+  }
+
+  private clearWorkspaceBackup(): void {
+    localStorage.removeItem('lamp_workspace_backup_v1');
+  }
+
+  // Show new file modal
+  showNewFileModal(): void {
+    const modal = document.getElementById('newFileModal');
+    const input = document.getElementById('newFileName') as HTMLInputElement;
+    if (modal && input) {
+      modal.style.display = 'grid';
+      input.value = '';
+      input.focus();
+    }
+  }
+
+  // Hide new file modal
+  hideNewFileModal(): void {
+    const modal = document.getElementById('newFileModal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  // Create new file from modal input
+  async createNewFileFromModal(): Promise<void> {
+    const input = document.getElementById('newFileName') as HTMLInputElement;
+    const fileName = input.value.trim();
+
+    if (!fileName) {
+      alert('Please enter a file name');
+      return;
+    }
+
+    // Validate file name
+    if (fileName.includes('/') || fileName.includes('\\')) {
+      alert('File name cannot contain path separators. Use only the file name.');
+      return;
+    }
+
+    try {
+      await this.createFile(fileName, '');
+      this.hideNewFileModal();
+
+      // Open the new file in the editor
+      const file = this.workspace.byPath.get(fileName);
+      if (file && this.editorManager) {
+        this.editorManager.openFile(file);
+      }
+    } catch (error) {
+      alert(`Failed to create file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Show context menu for file operations
+  showContextMenu(event: MouseEvent, filePath: string): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const contextMenu = document.getElementById('fileContextMenu');
+    if (!contextMenu) return;
+
+    this.contextMenuTarget = filePath;
+
+    // Position the context menu
+    contextMenu.style.display = 'block';
+    contextMenu.style.left = `${event.clientX}px`;
+    contextMenu.style.top = `${event.clientY}px`;
+
+    // Adjust position if menu would go off screen
+    const rect = contextMenu.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    if (rect.right > viewportWidth) {
+      contextMenu.style.left = `${event.clientX - rect.width}px`;
+    }
+    if (rect.bottom > viewportHeight) {
+      contextMenu.style.top = `${event.clientY - rect.height}px`;
+    }
+  }
+
+  // Hide context menu
+  hideContextMenu(): void {
+    const contextMenu = document.getElementById('fileContextMenu');
+    if (contextMenu) {
+      contextMenu.style.display = 'none';
+    }
+    this.contextMenuTarget = null;
+  }
+
+  // Delete file with confirmation
+  async deleteFileWithConfirmation(): Promise<void> {
+    if (!this.contextMenuTarget) return;
+
+    const file = this.workspace.byPath.get(this.contextMenuTarget);
+    if (!file) return;
+
+    const confirmed = confirm(`Are you sure you want to delete "${file.name}"? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      await this.deleteFile(this.contextMenuTarget);
+      this.hideContextMenu();
+    } catch (error) {
+      alert(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Rename file (placeholder for future implementation)
+  async renameFile(): Promise<void> {
+    if (!this.contextMenuTarget) return;
+
+    const file = this.workspace.byPath.get(this.contextMenuTarget);
+    if (!file) return;
+
+    const newName = prompt(`Rename "${file.name}" to:`, file.name);
+    if (!newName || newName === file.name) return;
+
+    // For now, just show a message that this feature is coming soon
+    alert('Rename functionality is coming soon! For now, you can delete the file and create a new one with the desired name.');
   }
 
   // Debug helpers - only available in debug mode

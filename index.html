@@ -17,11 +17,13 @@
             <header class="panel-header" role="banner">
                 <div class="header-left">
                     <h1 aria-level="1" aria-label="Chat with AI">Chat</h1>
-                    <span class="breadcrumb" aria-label="Current model">OpenRouter • Grok Code</span>
+                    <span class="breadcrumb" aria-label="Current model" role="status">OpenRouter • Grok Code</span>
                 </div>
                 <div class="header-right" role="toolbar" aria-label="Chat controls">
-                    <button id="toggleContextBtn" class="action-btn small" title="Toggle sending file contents as context" aria-pressed="true" aria-label="Context toggle">Context: On</button>
-                    <button id="previewContextBtn" class="action-btn small" title="Preview and select context files (Ctrl+I)" aria-label="Preview context">Preview</button>
+                    <div id="context-description" class="sr-only">Controls whether file contents are sent as context to the AI assistant</div>
+                    <div id="preview-description" class="sr-only">Opens a modal to preview and select which files to include as context for AI conversations</div>
+                    <button id="toggleContextBtn" class="action-btn small" title="Toggle sending file contents as context" aria-pressed="true" aria-label="Toggle context sharing" aria-describedby="context-description">Context: On</button>
+                    <button id="previewContextBtn" class="action-btn small" title="Preview and select context files (Ctrl+I)" aria-label="Preview and select context files" aria-describedby="preview-description">Preview</button>
                     <button id="openSettingsBtn" class="action-btn small" title="Settings (Ctrl+/)" aria-label="Open settings"><i class="fa-solid fa-gear" aria-hidden="true"></i></button>
                     <button id="clearChatBtn" class="action-btn small" title="Clear chat (Ctrl+K)" aria-label="Clear chat history"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
                 </div>
@@ -74,6 +76,9 @@
             <header class="panel-header explorer-header" role="banner">
                 <h2 aria-level="2">Explorer</h2>
                 <div class="header-right" role="toolbar" aria-label="Explorer controls">
+                    <button id="newFileBtn" class="action-btn small" title="New File" aria-label="Create new file"><i class="fa-solid fa-file-plus" aria-hidden="true"></i> New File</button>
+                    <button id="undoChangesBtn" class="action-btn small" title="Undo Last AI Change" aria-label="Undo last AI change" disabled><i class="fa-solid fa-undo" aria-hidden="true"></i> Undo</button>
+                    <button id="downloadZipBtn" class="action-btn small" title="Download Workspace as ZIP" aria-label="Download workspace as zip"><i class="fa-solid fa-file-zipper" aria-hidden="true"></i> Download</button>
                     <button id="openFolderBtn" class="action-btn small" title="Open Folder (Ctrl+O)" aria-label="Open folder"><i class="fa-solid fa-folder-open" aria-hidden="true"></i> Open Folder</button>
                     <button class="icon-btn" title="Refresh" aria-label="Refresh explorer"><i class="fa-solid fa-arrows-rotate" aria-hidden="true"></i></button>
                 </div>
@@ -164,7 +169,34 @@
         </div>
         <div class="modal-backdrop" aria-hidden="true"></div>
     </div>
-    
+
+    <!-- Context Menu for File Operations -->
+    <div id="fileContextMenu" class="context-menu" style="display: none;" role="menu" aria-label="File operations">
+        <button class="context-menu-item" id="contextRenameFile" role="menuitem">
+            <i class="fa-solid fa-edit" aria-hidden="true"></i> Rename
+        </button>
+        <button class="context-menu-item" id="contextDeleteFile" role="menuitem">
+            <i class="fa-solid fa-trash" aria-hidden="true"></i> Delete
+        </button>
+    </div>
+
+    <!-- New File Modal -->
+    <div id="newFileModal" class="modal" style="display: none;" role="dialog" aria-labelledby="newFileTitle" aria-modal="true">
+        <div class="modal-content">
+            <h3 id="newFileTitle">Create New File</h3>
+            <div class="form-group">
+                <label for="newFileName">File Name:</label>
+                <input type="text" id="newFileName" placeholder="e.g., script.js, style.css, index.html" aria-describedby="fileNameHelp">
+                <small id="fileNameHelp">Include the file extension to enable syntax highlighting</small>
+            </div>
+            <div class="modal-actions" role="group" aria-label="New file actions">
+                <button id="createFileBtn" class="action-btn primary" aria-label="Create file">Create</button>
+                <button id="cancelNewFileBtn" class="action-btn" aria-label="Cancel">Cancel</button>
+            </div>
+        </div>
+        <div class="modal-backdrop" aria-hidden="true"></div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
