@@ -34,13 +34,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   explorerManager.setNotificationManager(notifications);
 
   // Connect chat with notification system and context provider
-  chatManager.setNotificationManager(notifications);
   chatManager.setContextProvider(() => contextManager.buildContextMessage());
-
-  // Enable debug mode if in development
-  if (process.env.NODE_ENV !== 'production') {
-    chatManager.setDebugMode(true);
-  }
 
   // Load workspace session if available
   logger.info('App initialization: checking for saved workspace...');
@@ -68,14 +62,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Setup debug helpers
   explorerManager.setupDebugHelpers();
-
-  // Add global debug toggle for file operations (press F12 + Shift to toggle)
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'F12' && e.shiftKey) {
-      e.preventDefault();
-      chatManager.setDebugMode(!chatManager.isDebugMode);
-    }
-  });
 
   logger.info('Application initialized successfully');
 });

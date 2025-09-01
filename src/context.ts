@@ -26,7 +26,8 @@ export class ContextManager {
   updateContextToggleUI(): void {
     const toggleContextBtn = document.getElementById('toggleContextBtn');
     if (toggleContextBtn) {
-      toggleContextBtn.textContent = `Context: ${this.ctx.enabled ? 'On' : 'Off'}`;
+      const count = this.workspace.files.filter(f => f.selected).length;
+      toggleContextBtn.textContent = `Context: ${this.ctx.enabled ? `On (${count})` : 'Off'}`;
       toggleContextBtn.setAttribute('aria-pressed', this.ctx.enabled.toString());
     }
   }
