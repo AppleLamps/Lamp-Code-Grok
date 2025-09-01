@@ -1,6 +1,5 @@
 // UI utilities, modal management, and keyboard shortcuts module
 import { loadPanelSizes, savePanelSizes } from './storage.js';
-import JSZip from 'jszip';
 import {
   UIManagerDependencies,
   SettingsManagerInterface,
@@ -269,22 +268,6 @@ export class UIManager {
     this.initPanelResizing();
     this.initResponsiveHeaders();
 
-    // Connect the new file button
-    const newFileBtn = document.getElementById('newFileBtn');
-    newFileBtn?.addEventListener('click', () => {
-      this.explorerManager?.showNewFileModal();
-    });
-
-    // Connect the new Undo button
-    const undoBtn = document.getElementById('undoChangesBtn');
-    undoBtn?.addEventListener('click', () => {
-      this.explorerManager?.restoreWorkspaceState();
-    });
-
-    // Connect the new Download ZIP button
-    const downloadBtn = document.getElementById('downloadZipBtn');
-    downloadBtn?.addEventListener('click', () => this.downloadWorkspaceAsZip());
-
     // Auto-focus chat input when app loads
     setTimeout(() => this.focusChatInput(), 100);
   }
@@ -387,29 +370,5 @@ export class UIManager {
 
     // Periodic check for manual resizing
     setInterval(checkResponsiveness, 1000);
-  }
-
-  private async downloadWorkspaceAsZip(): Promise<void> {
-    const workspace = this.explorerManager?.getWorkspace();
-    if (!workspace || workspace.files.length === 0) {
-      this.notificationManager?.warning('Workspace is empty. Nothing to download.');
-      return;
-    }
-
-    const zip = new JSZip();
-    workspace.files.forEach(file => {
-      // Use file.text if available, otherwise it will be an empty file
-      zip.file(file.path, file.text || '');
-    });
-
-    zip.generateAsync({ type: 'blob' }).then(content => {
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(content);
-      const workspaceName = workspace.name || 'lampcode-workspace';
-      link.download = `${workspaceName}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    });
   }
 }

@@ -1260,50 +1260,6 @@ kbd {
     margin-top: var(--space-2);
 }
 
-/* --- Context Menu --- */
-.context-menu {
-    position: fixed;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
-    padding: var(--space-2);
-    min-width: 150px;
-    z-index: 1000;
-    display: none;
-}
-
-.context-menu-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    width: 100%;
-    padding: var(--space-2) var(--space-3);
-    border: none;
-    background: none;
-    color: var(--text-primary);
-    font-size: 13px;
-    font-family: var(--font-family);
-    text-align: left;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: background-color var(--transition-fast);
-}
-
-.context-menu-item:hover {
-    background-color: var(--accent-subtle);
-    color: var(--accent-primary);
-}
-
-.context-menu-item:focus {
-    outline: 2px solid var(--accent-primary);
-    outline-offset: -2px;
-}
-
-.context-menu-item i {
-    width: 14px;
-    text-align: center;
-}
 
 /* Icon button styling */
 .icon-btn {
@@ -1428,34 +1384,6 @@ kbd {
     white-space: nowrap;
 }
 
-.tree-item-delete {
-    opacity: 0;
-    visibility: hidden;
-    transition: all var(--transition-fast);
-    cursor: pointer;
-    padding: var(--space-1);
-    border-radius: var(--radius-sm);
-    color: var(--text-tertiary);
-    font-size: 12px;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-left: auto;
-    flex-shrink: 0;
-}
-
-.tree-item:hover .tree-item-delete {
-    opacity: 1;
-    visibility: visible;
-}
-
-.tree-item-delete:hover {
-    background: var(--error-bg);
-    color: var(--error);
-    transform: scale(1.1);
-}
 
 .tree-item .chevron {
     width: 14px;
