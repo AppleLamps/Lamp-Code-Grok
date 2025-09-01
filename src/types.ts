@@ -152,11 +152,22 @@ export interface ContextManagerInterface {
   setupEventListeners(): void;
 }
 
+export interface NotificationManagerInterface {
+  toast(options: any): void;
+  success(message: string, title?: string, duration?: number): void;
+  error(message: string, title?: string, duration?: number): void;
+  warning(message: string, title?: string, duration?: number): void;
+  info(message: string, title?: string, duration?: number): void;
+  confirm(options: any): Promise<boolean>;
+  prompt(options: any): Promise<string | null>;
+}
+
 export interface UIManagerDependencies {
   settingsManager: SettingsManagerInterface;
   chatManager: ChatManagerInterface;
   explorerManager: ExplorerManagerInterface;
   contextManager: ContextManagerInterface;
+  notificationManager: NotificationManagerInterface;
 }
 
 // Debug configuration

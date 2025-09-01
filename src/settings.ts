@@ -5,6 +5,7 @@ import { trapFocus } from './utils.js';
 
 export class SettingsManager {
   private settings: Settings;
+  private notificationManager: any = null; // Will be injected
   private focusTrap: (() => void) | null = null;
 
   constructor() {
@@ -99,25 +100,7 @@ export class SettingsManager {
     return isValid;
   }
 
-  private showAlert(message: string, type: 'success' | 'error'): void {
-    const existingAlert = document.querySelector('#settings-alert');
-    if (existingAlert) existingAlert.remove();
-    
-    const alert = document.createElement('div');
-    alert.id = 'settings-alert';
-    alert.className = `alert alert-${type}`;
-    alert.textContent = message;
-    alert.setAttribute('role', 'alert');
-    
-    const settingsModal = document.getElementById('settingsModal');
-    const settingsContent = settingsModal?.querySelector('.modal-content');
-    if (settingsContent) {
-      settingsContent.insertBefore(alert, settingsContent.firstChild?.nextSibling);
-      if (type === 'success') {
-        setTimeout(() => alert.remove(), 3000);
-      }
-    }
-  }
+
 
   openSettingsModal(): void {
     const settingsModal = document.getElementById('settingsModal');
@@ -167,11 +150,15 @@ export class SettingsManager {
       saveSettings(this.settings);
       
       // Show success feedback
-      this.showAlert('Settings saved successfully!', 'success');
+      if (this.notificationManager) {
+        this.notificationManager.success('Settings saved successfully!');
+      }
       return true;
     } catch (error) {
       console.error('Failed to save settings:', error);
-      this.showAlert('Failed to save settings. Please try again.', 'error');
+      if (this.notificationManager) {
+        this.notificationManager.error('Failed to save settings. Please try again.');
+      }
       return false;
     }
   }
@@ -188,6 +175,10 @@ export class SettingsManager {
 
   getModel(): string {
     return this.settings.model || 'x-ai/grok-code-fast-1';
+  }
+
+  setNotificationManager(notificationManager: any): void {
+    this.notificationManager = notificationManager;
   }
 
   setupEventListeners(): void {
@@ -210,7 +201,9 @@ export class SettingsManager {
     const securityLearnMoreLink = document.getElementById('securityLearnMoreLink');
     securityLearnMoreLink?.addEventListener('click', (e) => {
       e.preventDefault();
-      alert('For production, implement a backend proxy that stores API keys securely and forwards requests to OpenRouter. This prevents exposing keys to client-side code.');
+      if (this.notificationManager) {
+        this.notificationManager.info('For production, implement a backend proxy that stores API keys securely and forwards requests to OpenRouter. This prevents exposing keys to client-side code.', 'Security Notice');
+      }
     });
   }
 }

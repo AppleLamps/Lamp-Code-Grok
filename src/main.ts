@@ -6,12 +6,14 @@ import { ContextManager } from './context.js';
 import { ExplorerManager } from './explorer.js';
 import { UIManager } from './ui.js';
 import { EditorManager } from './editor.js';
+import { notifications } from './notifications.js';
 import { logger } from './utils.js';
 
 // Initialize the application when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
   // Initialize managers
   const settingsManager = new SettingsManager();
+  settingsManager.setNotificationManager(notifications);
   const explorerManager = new ExplorerManager();
   const contextManager = new ContextManager(explorerManager.getWorkspace());
   const chatManager = new ChatManager(settingsManager, explorerManager);
@@ -23,14 +25,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     settingsManager,
     chatManager,
     explorerManager,
-    contextManager
+    contextManager,
+    notificationManager: notifications
   });
 
   // Connect editor with explorer
   explorerManager.setEditorManager(editorManager);
+  explorerManager.setNotificationManager(notifications);
 
-  // Connect chat with context provider
+  // Connect chat with notification system and context provider
+  chatManager.setNotificationManager(notifications);
   chatManager.setContextProvider(() => contextManager.buildContextMessage());
+
+  // Enable debug mode if in development
+  if (process.env.NODE_ENV !== 'production') {
+    chatManager.setDebugMode(true);
+  }
 
   // Load workspace session if available
   logger.info('App initialization: checking for saved workspace...');
@@ -58,6 +68,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Setup debug helpers
   explorerManager.setupDebugHelpers();
+
+  // Add global debug toggle for file operations (press F12 + Shift to toggle)
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'F12' && e.shiftKey) {
+      e.preventDefault();
+      chatManager.setDebugMode(!chatManager.isDebugMode);
+    }
+  });
 
   logger.info('Application initialized successfully');
 });

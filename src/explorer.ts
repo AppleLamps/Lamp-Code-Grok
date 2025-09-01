@@ -18,8 +18,10 @@ import { estimateTokens, iconForFile, track, logger } from './utils.js';
 
 export class ExplorerManager {
   private workspace: Workspace;
+  private virtualItemsPool: HTMLLIElement[] = [];
   private virtualScrollState: VirtualScrollState;
   private editorManager: any = null; // Will be injected
+  private notificationManager: any = null; // Will be injected
   private contextMenuTarget: string | null = null; // Track which file the context menu is for
 
   constructor() {
@@ -46,6 +48,10 @@ export class ExplorerManager {
 
   setEditorManager(editorManager: any): void {
     this.editorManager = editorManager;
+  }
+
+  setNotificationManager(notificationManager: any): void {
+    this.notificationManager = notificationManager;
   }
 
   private renderEmpty(): void {
@@ -167,9 +173,9 @@ export class ExplorerManager {
     if (node.isDir) {
       li.setAttribute('aria-expanded', node.expanded.toString());
       const chevron = node.expanded ? 'fa-chevron-down' : 'fa-chevron-right';
-      li.innerHTML = `<i class="chevron fa-solid ${chevron}" aria-hidden="true"></i> ${iconForFile(node.name, node.isDir)} ${node.name}`;
+      li.innerHTML = `<i class="chevron fa-solid ${chevron}" aria-hidden="true"></i> ${iconForFile(node.name, node.isDir)} <span class="tree-item-name">${node.name}</span><i class="tree-item-delete fa-solid fa-trash" aria-hidden="true" title="Delete folder"></i>`;
     } else {
-      li.innerHTML = `<span class="chevron-spacer" aria-hidden="true"></span> ${iconForFile(node.name, node.isDir)} ${node.name}`;
+      li.innerHTML = `<span class="chevron-spacer" aria-hidden="true"></span> ${iconForFile(node.name, node.isDir)} <span class="tree-item-name">${node.name}</span><i class="tree-item-delete fa-solid fa-trash" aria-hidden="true" title="Delete file"></i>`;
     }
 
     return li;
@@ -215,33 +221,54 @@ export class ExplorerManager {
     fileTreeEl.style.position = 'relative';
     fileTreeEl.style.overflowY = 'auto';
 
-    // Create virtual scroller wrapper
-    fileTreeEl.innerHTML = '';
-    const virtualContainer = document.createElement('div');
+    // Create or reuse virtual container
+    let virtualContainer = fileTreeEl.querySelector('.virtual-container') as HTMLElement;
+    if (!virtualContainer) {
+      virtualContainer = document.createElement('div');
+      virtualContainer.className = 'virtual-container';
+      fileTreeEl.appendChild(virtualContainer);
+    }
     virtualContainer.style.height = `${totalHeight}px`;
     virtualContainer.style.position = 'relative';
 
-    // Render visible items with bounds checking
-    const visibleItems = [];
-    for (let i = Math.max(0, startIndex); i <= Math.min(endIndex, flatNodes.length - 1); i++) {
-      if (flatNodes[i]) {
-        const node = flatNodes[i];
-        const li = this.createTreeItem(node);
-        li.style.position = 'absolute';
-        li.style.top = `${i * itemHeight}px`;
-        li.style.width = '100%';
-        li.style.height = `${itemHeight}px`;
-        li.style.boxSizing = 'border-box';
-        visibleItems.push(li);
-      }
+    // Render or update visible items
+    const visibleCount = endIndex - startIndex + 1;
+    while (this.virtualItemsPool.length < visibleCount) {
+      this.virtualItemsPool.push(this.createTreeItem({} as TreeNode)); // Create pool items
     }
 
-    // Batch DOM updates for better performance
-    const fragment = document.createDocumentFragment();
-    visibleItems.forEach(li => fragment.appendChild(li));
-    virtualContainer.appendChild(fragment);
+    for (let i = 0; i < visibleCount; i++) {
+      const nodeIndex = startIndex + i;
+      if (nodeIndex >= flatNodes.length) break;
 
-    fileTreeEl.appendChild(virtualContainer);
+      const node = flatNodes[nodeIndex];
+      const li = this.virtualItemsPool[i];
+
+      // Update item content and styles
+      li.style.position = 'absolute';
+      li.style.top = `${nodeIndex * itemHeight}px`;
+      li.style.width = '100%';
+      li.style.height = `${itemHeight}px`;
+      li.style.boxSizing = 'border-box';
+      li.style.paddingLeft = `${node.level * 16 + 8}px`;
+      li.dataset.path = node.path;
+      li.dataset.isDir = String(node.isDir);
+
+      if (node.isDir) {
+        const chevron = node.expanded ? 'fa-chevron-down' : 'fa-chevron-right';
+        li.innerHTML = `<i class="chevron fa-solid ${chevron}" aria-hidden="true"></i> ${iconForFile(node.name, node.isDir)} <span class="tree-item-name">${node.name}</span><i class="tree-item-delete fa-solid fa-trash" aria-hidden="true" title="Delete folder"></i>`;
+        li.setAttribute('aria-expanded', node.expanded.toString());
+      } else {
+        li.innerHTML = `<span class="chevron-spacer" aria-hidden="true"></span> ${iconForFile(node.name, node.isDir)} <span class="tree-item-name">${node.name}</span><i class="tree-item-delete fa-solid fa-trash" aria-hidden="true" title="Delete file"></i>`;
+      }
+
+      virtualContainer.appendChild(li);
+    }
+
+    // Remove excess items
+    while (virtualContainer.children.length > visibleCount) {
+      virtualContainer.lastChild?.remove();
+    }
   }
 
   renderTree(): void {
@@ -439,6 +466,263 @@ export class ExplorerManager {
     saveWorkspaceSession(session);
   }
 
+  async initializeNewWorkspace(projectName?: string): Promise<void> {
+    // Generate a default workspace name based on current date/time or use provided name
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-'); // HH-MM-SS
+    const defaultName = projectName || `my-project-${dateStr}-${timeStr}`;
+
+    // Initialize workspace structure
+    this.workspace.name = defaultName;
+    this.workspace.files = [];
+    this.workspace.byPath.clear();
+    this.workspace.tree = null;
+
+    // Notify user about auto-workspace creation
+    if (this.notificationManager) {
+      this.notificationManager.success(`Created new workspace: ${defaultName}`, 'Auto-Workspace Created', 4000);
+    }
+
+    logger.info('Auto-initialized new workspace:', { name: defaultName });
+    track('workspace:auto-created', { name: defaultName });
+  }
+
+  async initializeProjectTemplate(projectType: 'web' | 'react' | 'node' | 'python' | 'basic', projectName?: string): Promise<void> {
+    // Initialize workspace first
+    await this.initializeNewWorkspace(projectName);
+
+    // Create template files based on project type
+    const templates = this.getProjectTemplates();
+    const template = templates[projectType] || templates.basic;
+
+    for (const file of template.files) {
+      await this.createFileDirectly(file.path, file.content);
+    }
+
+    // Invalidate tree to force rebuild and re-render
+    this.workspace.tree = null;
+    this.renderTree();
+    this.saveWorkspaceSession();
+
+    if (this.notificationManager) {
+      this.notificationManager.success(`${template.name} project initialized with ${template.files.length} files`, 'Project Template Created', 4000);
+    }
+
+    logger.info('Project template created:', { projectType, fileCount: template.files.length });
+    track('workspace:template-created', { projectType, name: this.workspace.name });
+  }
+
+  private async createFileDirectly(path: string, content: string): Promise<void> {
+    // Internal method to create files without checking workspace state or triggering UI updates
+    const name = path.split('/').pop() || '';
+    const file: WorkspaceFile = {
+      path,
+      name,
+      isDir: false,
+      size: content.length,
+      text: content,
+      selected: true,
+      estTokens: estimateTokens(content)
+    };
+    this.workspace.files.push(file);
+    this.workspace.byPath.set(path, file);
+  }
+
+  private getProjectTemplates() {
+    return {
+      web: {
+        name: 'Web Project',
+        files: [
+          {
+            path: 'index.html',
+            content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Web Project</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header>
+        <h1>Welcome to My Web Project</h1>
+    </header>
+    <main>
+        <p>This is a starter template for your web project.</p>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>`
+          },
+          {
+            path: 'styles.css',
+            content: `/* Reset and base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f4f4f4;
+}
+
+header {
+    background-color: #333;
+    color: white;
+    text-align: center;
+    padding: 1rem;
+}
+
+main {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    padding: 2rem;
+}
+
+h1 {
+    margin-bottom: 1rem;
+}`
+          },
+          {
+            path: 'script.js',
+            content: `// Main JavaScript file
+console.log('Web project loaded successfully!');
+
+// Add your JavaScript code here
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM fully loaded');
+    // Your initialization code goes here
+});`
+          }
+        ]
+      },
+      react: {
+        name: 'React Project',
+        files: [
+          {
+            path: 'package.json',
+            content: `{
+  "name": "my-react-app",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  }
+}`
+          },
+          {
+            path: 'src/App.js',
+            content: `import React from 'react';
+import './App.css';
+
+function App() {
+  return (
+    <div className="App">
+      <header className="App-header">
+        <h1>Welcome to React</h1>
+        <p>Edit src/App.js and save to reload.</p>
+      </header>
+    </div>
+  );
+}
+
+export default App;`
+          },
+          {
+            path: 'src/App.css',
+            content: `.App {
+  text-align: center;
+}
+
+.App-header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+}
+
+h1 {
+  margin-bottom: 1rem;
+}`
+          },
+          {
+            path: 'src/index.js',
+            content: `import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import App from './App';
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);`
+          },
+          {
+            path: 'public/index.html',
+            content: `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>React App</title>
+</head>
+<body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+</body>
+</html>`
+          }
+        ]
+      },
+      basic: {
+        name: 'Basic Project',
+        files: [
+          {
+            path: 'README.md',
+            content: `# My Project
+
+Welcome to my project! This is a basic template to get you started.
+
+## Getting Started
+
+1. Edit this README file to describe your project
+2. Add your project files
+3. Start building something amazing!
+
+## File Structure
+
+- \`README.md\` - This file
+- Add more files as needed for your project
+`
+          }
+        ]
+      }
+    };
+  }
+
   setupEventListeners(): void {
     const openFolderBtn = document.getElementById('openFolderBtn');
     const emptyOpenFolderBtn = document.getElementById('emptyOpenFolderBtn');
@@ -503,10 +787,24 @@ export class ExplorerManager {
     });
 
     // Tree click handler for expand/collapse and file opening
-    fileTreeEl?.addEventListener('click', (e) => {
+    fileTreeEl?.addEventListener('click', async (e: Event) => {
       const target = e.target as HTMLElement;
       const treeItem = target.closest('.tree-item') as HTMLElement;
       if (!treeItem) return;
+
+      // Check if the click was on the delete button
+      if (target.classList.contains('tree-item-delete')) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const path = treeItem.dataset.path;
+        const isDir = treeItem.dataset.isDir === 'true';
+        
+        if (path) {
+          await this.confirmAndDeleteItem(path, isDir);
+        }
+        return;
+      }
 
       const path = treeItem.dataset.path;
       const isDir = treeItem.dataset.isDir === 'true';
@@ -576,8 +874,8 @@ export class ExplorerManager {
     const contextRenameBtn = document.getElementById('contextRenameFile');
     const contextDeleteBtn = document.getElementById('contextDeleteFile');
 
-    contextRenameBtn?.addEventListener('click', () => this.renameFile());
-    contextDeleteBtn?.addEventListener('click', () => this.deleteFileWithConfirmation());
+    contextRenameBtn?.addEventListener('click', async () => await this.renameFile());
+    contextDeleteBtn?.addEventListener('click', async () => await this.deleteFileWithConfirmation());
 
     // Hide context menu when clicking elsewhere
     document.addEventListener('click', (e) => {
@@ -597,6 +895,11 @@ export class ExplorerManager {
   }
 
   async createFile(path: string, content: string): Promise<void> {
+    // If no workspace is loaded, initialize a new one
+    if (!this.workspace.name && this.workspace.files.length === 0) {
+      await this.initializeNewWorkspace();
+    }
+
     if (this.workspace.byPath.has(path)) {
       throw new Error(`File already exists at path: ${path}`);
     }
@@ -613,6 +916,7 @@ export class ExplorerManager {
     this.workspace.files.push(file);
     this.workspace.byPath.set(path, file);
     this.workspace.tree = null; // Invalidate tree to force rebuild
+    this.renderTree(); // Re-render to show the new files
     this.saveWorkspaceSession();
   }
 
@@ -735,13 +1039,13 @@ export class ExplorerManager {
     const fileName = input.value.trim();
 
     if (!fileName) {
-      alert('Please enter a file name');
+      this.notificationManager?.error('Please enter a file name');
       return;
     }
 
     // Validate file name
     if (fileName.includes('/') || fileName.includes('\\')) {
-      alert('File name cannot contain path separators. Use only the file name.');
+      this.notificationManager?.error('File name cannot contain path separators. Use only the file name.');
       return;
     }
 
@@ -755,7 +1059,7 @@ export class ExplorerManager {
         this.editorManager.openFile(file);
       }
     } catch (error) {
-      alert(`Failed to create file: ${error instanceof Error ? error.message : String(error)}`);
+      this.notificationManager?.error(`Failed to create file: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -803,15 +1107,86 @@ export class ExplorerManager {
     const file = this.workspace.byPath.get(this.contextMenuTarget);
     if (!file) return;
 
-    const confirmed = confirm(`Are you sure you want to delete "${file.name}"? This action cannot be undone.`);
+    const confirmed = await this.notificationManager?.confirm({
+      title: 'Delete File',
+      message: `Are you sure you want to delete "${file.name}"? This action cannot be undone.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
     if (!confirmed) return;
 
     try {
       await this.deleteFile(this.contextMenuTarget);
       this.hideContextMenu();
     } catch (error) {
-      alert(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
+      this.notificationManager?.error(`Failed to delete file: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  // Confirm and delete item (file or directory) from tree
+  async confirmAndDeleteItem(path: string, isDirectory: boolean): Promise<void> {
+    const itemType = isDirectory ? 'folder' : 'file';
+    const itemName = path.split('/').pop() || path;
+    
+    let confirmMessage = `Are you sure you want to delete the ${itemType} "${itemName}"?`;
+    if (isDirectory) {
+      confirmMessage += ` This will delete all files and subfolders within it.`;
+    }
+    confirmMessage += ` This action cannot be undone.`;
+
+    const confirmed = await this.notificationManager?.confirm({
+      title: `Delete ${itemType}`,
+      message: confirmMessage,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      type: 'danger'
+    });
+    if (!confirmed) return;
+
+    try {
+      if (isDirectory) {
+        await this.deleteDirectory(path);
+      } else {
+        await this.deleteFile(path);
+      }
+      this.renderTree(); // Re-render the tree after deletion
+      track('item:delete', { path, isDirectory, name: itemName });
+    } catch (error) {
+      this.notificationManager?.error(`Failed to delete ${itemType}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // Delete directory and all its contents
+  async deleteDirectory(dirPath: string): Promise<void> {
+    // Find all files that start with this directory path
+    const filesToDelete = this.workspace.files.filter(file => 
+      file.path === dirPath || file.path.startsWith(dirPath + '/')
+    );
+
+    if (filesToDelete.length === 0) {
+      throw new Error(`Directory not found: ${dirPath}`);
+    }
+
+    // Close any open tabs for files in this directory
+    if (this.editorManager) {
+      const openTabs = this.editorManager.getOpenTabs();
+      for (const file of filesToDelete) {
+        const openTab = openTabs.find((tab: any) => tab.file.path === file.path);
+        if (openTab) {
+          this.editorManager.closeFile(openTab.id);
+        }
+      }
+    }
+
+    // Remove all files in the directory
+    for (const file of filesToDelete) {
+      this.workspace.files = this.workspace.files.filter(f => f.path !== file.path);
+      this.workspace.byPath.delete(file.path);
+    }
+
+    this.workspace.tree = null; // Invalidate tree to force rebuild
+    this.saveWorkspaceSession();
   }
 
   // Rename file (placeholder for future implementation)
@@ -821,11 +1196,18 @@ export class ExplorerManager {
     const file = this.workspace.byPath.get(this.contextMenuTarget);
     if (!file) return;
 
-    const newName = prompt(`Rename "${file.name}" to:`, file.name);
+    const newName = await this.notificationManager?.prompt({
+      title: 'Rename File',
+      message: `Rename "${file.name}" to:`,
+      defaultValue: file.name,
+      placeholder: 'Enter new file name',
+      confirmText: 'Rename',
+      cancelText: 'Cancel'
+    });
     if (!newName || newName === file.name) return;
 
     // For now, just show a message that this feature is coming soon
-    alert('Rename functionality is coming soon! For now, you can delete the file and create a new one with the desired name.');
+    this.notificationManager?.info('Rename functionality is coming soon! For now, you can delete the file and create a new one with the desired name.');
   }
 
   // Debug helpers - only available in debug mode

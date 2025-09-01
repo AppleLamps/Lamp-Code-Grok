@@ -6,7 +6,8 @@ import {
   SettingsManagerInterface,
   ChatManagerInterface,
   ExplorerManagerInterface,
-  ContextManagerInterface
+  ContextManagerInterface,
+  NotificationManagerInterface
 } from './types.js';
 
 export class UIManager {
@@ -14,6 +15,7 @@ export class UIManager {
   private chatManager: ChatManagerInterface | null = null;
   private explorerManager: ExplorerManagerInterface | null = null;
   private contextManager: ContextManagerInterface | null = null;
+  private notificationManager: NotificationManagerInterface | null = null;
 
   constructor() {
     // Dependencies will be injected after creation
@@ -24,6 +26,7 @@ export class UIManager {
     this.chatManager = deps.chatManager;
     this.explorerManager = deps.explorerManager;
     this.contextManager = deps.contextManager;
+    this.notificationManager = deps.notificationManager;
   }
 
   initKeyboardShortcuts(): void {
@@ -389,7 +392,7 @@ export class UIManager {
   private async downloadWorkspaceAsZip(): Promise<void> {
     const workspace = this.explorerManager?.getWorkspace();
     if (!workspace || workspace.files.length === 0) {
-      alert('Workspace is empty. Nothing to download.');
+      this.notificationManager?.warning('Workspace is empty. Nothing to download.');
       return;
     }
 

@@ -112,6 +112,9 @@ export class ChatManager {
   private settingsManager: SettingsManager;
   private explorerManager: ExplorerManager;
   private contextProvider: (() => { contextMessage?: ContextMessage; contextStats?: ContextStats }) | null = null;
+  private lastExecutedOperations: any[] = [];
+  private notificationManager: any = null; // Will be injected
+  private debugMode: boolean = false;
 
   constructor(settingsManager: SettingsManager, explorerManager: ExplorerManager) {
     this.settingsManager = settingsManager;
@@ -123,7 +126,343 @@ export class ChatManager {
     this.contextProvider = provider;
   }
 
-  // Parse and execute file operations from structured JSON output
+  setNotificationManager(notificationManager: any): void {
+    this.notificationManager = notificationManager;
+  }
+
+  setDebugMode(enabled: boolean): void {
+    this.debugMode = enabled;
+    if (this.debugMode && this.notificationManager) {
+      this.notificationManager.info('Debug mode enabled for file operations', 'Debug Mode');
+    } else if (!this.debugMode && this.notificationManager) {
+      this.notificationManager.info('Debug mode disabled for file operations', 'Debug Mode');
+    }
+  }
+
+  get isDebugMode(): boolean {
+    return this.debugMode;
+  }
+
+  private cleanCodeContent(content: string): string {
+    if (!content) return '';
+    
+    return content
+      // Remove opening code fence with optional language
+      .replace(/^```[\w]*\s*\n?/gm, '')
+      // Remove closing code fence
+      .replace(/\n?```\s*$/gm, '')
+      // Remove filename comments (common AI patterns)
+      .replace(/^\/\/ filename:.*$/gmi, '')
+      .replace(/^# .*\.(js|ts|html|css|py|java|cpp|c|h|php|rb|go|rs|swift|kt|dart|vue|jsx|tsx|json|xml|yaml|yml|md|txt|sh|bat|ps1)\s*$/gmi, '')
+      // Remove "file: path" comments
+      .replace(/^\/\/ file: .*$/gmi, '')
+      .replace(/^<!-- file: .* -->$/gmi, '')
+      // Clean up extra whitespace
+      .replace(/^\s*\n+/, '') // Remove leading newlines
+      .replace(/\n+\s*$/, '') // Remove trailing newlines
+      .trim();
+  }
+
+  private isValidFilePath(path: string): boolean {
+    if (!path || typeof path !== 'string') return false;
+    
+    // Remove quotes and trim
+    path = path.replace(/[`"']/g, '').trim();
+    
+    // Basic security checks
+    if (path.includes('..') || path.startsWith('/') || path.includes('\\')) return false;
+    
+    // Must have a valid extension
+    if (!/\.[a-zA-Z0-9]+$/.test(path)) return false;
+    
+    // Must not be empty after cleaning
+    if (path.length === 0) return false;
+    
+    return true;
+  }
+
+  private extractFileOperationsFromMarkdown(content: string): any[] {
+    const operations: any[] = [];
+    
+    // Pattern 1: **FILE OPERATION:** format (preferred)
+    const operationPattern = /\*\*FILE OPERATION:\s*(CREATE|EDIT|DELETE)\*\*\s*\n?Path:\s*([^\n]+)\s*\n?(```[\w]*\s*\n?([\s\S]*?)```)?/gi;
+    
+    // Pattern 2: "Create file: path" format  
+    const createPattern = /(?:create|add|new)\s+(?:file|a file):?\s*[`"]?([^`"\n]+)[`"]?\s*[\n\r]*```[\w]*\s*\n?([\s\S]*?)```/gi;
+    
+    // Pattern 3: "Edit file: path" format
+    const editPattern = /(?:edit|update|modify)\s+(?:file|a file):?\s*[`"]?([^`"\n]+)[`"]?\s*[\n\r]*```[\w]*\s*\n?([\s\S]*?)```/gi;
+    
+    // Pattern 4: "Delete file: path" format
+    const deletePattern = /(?:delete|remove)\s+(?:file|a file):?\s*[`"]?([^`"\n]+)[`"]?/gi;
+    
+    // Pattern 5: Heading-based pattern (filename as heading followed by code block)
+    const headingPattern = /^#+\s*([^\n]+\.(js|ts|html|css|py|java|cpp|c|h|php|rb|go|rs|swift|kt|dart|vue|jsx|tsx|json|xml|yaml|yml|md|txt|sh|bat|ps1))\s*\n+```[\w]*\s*\n?([\s\S]*?)```/gmi;
+    
+    // Pattern 6: Inline code pattern (filename in backticks followed by content)
+    const inlinePattern = /`([^`]+\.(js|ts|html|css|py|java|cpp|c|h|php|rb|go|rs|swift|kt|dart|vue|jsx|tsx|json|xml|yaml|yml|md|txt|sh|bat|ps1))`[:\s]*\n*```[\w]*\s*\n?([\s\S]*?)```/gi;
+    
+    // Pattern 7: Save/write file pattern
+    const savePattern = /(?:save|write)\s+(?:to|as|file|this as):?\s*[`"]?([^`"\n]+)[`"]?\s*[\n\r]*```[\w]*\s*\n?([\s\S]*?)```/gi;
+    
+    let match;
+    
+    // Apply Pattern 1 (preferred format)
+    while ((match = operationPattern.exec(content)) !== null) {
+      const operation = match[1].toLowerCase() + '_file';
+      const path = match[2].trim().replace(/[`"']/g, '');
+      const fileContent = match[4] ? this.cleanCodeContent(match[4]) : '';
+      
+      if (this.isValidFilePath(path)) {
+        operations.push({
+          operation,
+          path,
+          content: fileContent || undefined
+        });
+      }
+    }
+    
+    // Apply other patterns if no preferred format found
+    if (operations.length === 0) {
+      // Pattern 2: Create format
+      createPattern.lastIndex = 0;
+      while ((match = createPattern.exec(content)) !== null) {
+        const path = match[1].trim().replace(/[`"']/g, '');
+        const fileContent = match[2] ? this.cleanCodeContent(match[2]) : '';
+        
+        if (this.isValidFilePath(path)) {
+          operations.push({
+            operation: 'create_file',
+            path: path,
+            content: fileContent
+          });
+        }
+      }
+      
+      // Pattern 3: Edit format
+      editPattern.lastIndex = 0;
+      while ((match = editPattern.exec(content)) !== null) {
+        const path = match[1].trim().replace(/[`"']/g, '');
+        const fileContent = match[2] ? this.cleanCodeContent(match[2]) : '';
+        
+        if (this.isValidFilePath(path)) {
+          operations.push({
+            operation: 'edit_file',
+            path: path,
+            content: fileContent
+          });
+        }
+      }
+      
+      // Pattern 4: Delete format
+      deletePattern.lastIndex = 0;
+      while ((match = deletePattern.exec(content)) !== null) {
+        const path = match[1].trim().replace(/[`"']/g, '');
+        
+        if (this.isValidFilePath(path)) {
+          operations.push({
+            operation: 'delete_file',
+            path: path
+          });
+        }
+      }
+    }
+    
+    // Apply additional patterns if still no operations found
+    if (operations.length === 0) {
+      // Pattern 5: Heading-based
+      headingPattern.lastIndex = 0;
+      while ((match = headingPattern.exec(content)) !== null) {
+        const path = match[1].trim().replace(/[`"']/g, '');
+        const fileContent = match[3] ? this.cleanCodeContent(match[3]) : '';
+        
+        if (this.isValidFilePath(path)) {
+          operations.push({
+            operation: 'create_file', // Default to create for heading-based
+            path: path,
+            content: fileContent
+          });
+        }
+      }
+      
+      // Pattern 6: Inline code
+      inlinePattern.lastIndex = 0;
+      while ((match = inlinePattern.exec(content)) !== null) {
+        const path = match[1].trim();
+        const fileContent = match[3] ? this.cleanCodeContent(match[3]) : '';
+        
+        if (this.isValidFilePath(path)) {
+          operations.push({
+            operation: 'create_file', // Default to create for inline
+            path: path,
+            content: fileContent
+          });
+        }
+      }
+      
+      // Pattern 7: Save/write format
+      savePattern.lastIndex = 0;
+      while ((match = savePattern.exec(content)) !== null) {
+        const path = match[1].trim().replace(/[`"']/g, '');
+        const fileContent = match[2] ? this.cleanCodeContent(match[2]) : '';
+        
+        if (this.isValidFilePath(path)) {
+          operations.push({
+            operation: 'create_file',
+            path: path,
+            content: fileContent
+          });
+        }
+      }
+    }
+    
+    return operations;
+  }
+
+  private extractLoosePatterns(content: string): any[] {
+    const operations: any[] = [];
+    
+    // Very loose pattern: any code block with a filename-like string nearby
+    // This is the last resort for edge cases
+    const loosePattern = /(?:^|\n)([^\n]*(?:create|make|add|build|generate|write).*?([a-zA-Z0-9_-]+\.[a-zA-Z0-9]+).*?)(?:\n|\s)*```[\w]*\s*\n?([\s\S]*?)```/gim;
+    
+    let match;
+    while ((match = loosePattern.exec(content)) !== null) {
+      const contextLine = match[1];
+      const potentialPath = match[2];
+      const fileContent = match[3] ? this.cleanCodeContent(match[3]) : '';
+      
+      // Only proceed if it looks like a file creation request
+      if (this.isValidFilePath(potentialPath) && 
+          /(?:create|make|add|build|generate|write)/i.test(contextLine)) {
+        operations.push({
+          operation: 'create_file',
+          path: potentialPath,
+          content: fileContent
+        });
+      }
+    }
+    
+    return operations;
+  }
+
+  private handleFileNameConflicts(path: string): string {
+    // Generate unique filename if file already exists
+    if (!this.explorerManager.getWorkspace().byPath.has(path)) {
+      return path;
+    }
+    
+    const lastDotIndex = path.lastIndexOf('.');
+    const nameWithoutExt = path.substring(0, lastDotIndex);
+    const extension = path.substring(lastDotIndex);
+    
+    let counter = 1;
+    let newPath = `${nameWithoutExt}_${counter}${extension}`;
+    
+    while (this.explorerManager.getWorkspace().byPath.has(newPath)) {
+      counter++;
+      newPath = `${nameWithoutExt}_${counter}${extension}`;
+    }
+    
+    return newPath;
+  }
+
+  private async undoLastOperations(): Promise<void> {
+    if (this.lastExecutedOperations.length === 0) {
+      if (this.notificationManager) {
+        this.notificationManager.warning('No operations to undo', 'Undo');
+      }
+      return;
+    }
+
+    if (this.notificationManager) {
+      const confirmed = await this.notificationManager.confirm({
+        title: 'Confirm Undo',
+        message: `This will undo ${this.lastExecutedOperations.length} file operation(s). This action cannot be undone itself.`,
+        confirmText: 'Undo',
+        cancelText: 'Keep Changes',
+        type: 'warning'
+      });
+
+      if (!confirmed) return;
+    }
+
+    // Note: A full undo system would require tracking file content before changes
+    // For now, we'll restore from the backup made before operations
+    try {
+      this.explorerManager.restoreWorkspaceState();
+      this.explorerManager.renderTree();
+      
+      if (this.notificationManager) {
+        this.notificationManager.success(`Undid ${this.lastExecutedOperations.length} operation(s)`, 'Undo Complete');
+      }
+      
+      this.lastExecutedOperations = [];
+    } catch (error) {
+      console.error('Failed to undo operations:', error);
+      if (this.notificationManager) {
+        this.notificationManager.error('Failed to undo operations. Some changes may remain.', 'Undo Failed');
+      }
+    }
+  }
+
+  private showFailureDetails(failedOperations: any[]): void {
+    const details = failedOperations.map(op => 
+      `• ${op.operation.replace('_', ' ')} "${op.path}": ${op.reason}`
+    ).join('\n');
+    
+    console.group('Failed File Operations Details:');
+    failedOperations.forEach(op => {
+      console.error(`${op.operation} "${op.path}":`, op.reason);
+    });
+    console.groupEnd();
+
+    if (this.notificationManager) {
+      this.notificationManager.toast({
+        type: 'error',
+        title: 'Operation Failure Details',
+        message: details,
+        duration: 0
+      });
+    }
+  }
+
+  private async getLastExecutionResult(): Promise<any[]> {
+    return this.lastExecutedOperations;
+  }
+
+  private debugLog(message: string, data?: any): void {
+    if (this.debugMode) {
+      console.log(`[File Operations Debug] ${message}`, data);
+      if (this.notificationManager) {
+        this.notificationManager.info(`Debug: ${message}`, 'File Operations', 3000);
+      }
+    }
+  }
+
+  private async confirmDestructiveOperation(operations: any[]): Promise<boolean> {
+    const destructiveOps = operations.filter(op => 
+      op.operation === 'delete_file' || 
+      (op.operation === 'edit_file' && this.explorerManager.getWorkspace().byPath.has(op.path))
+    );
+    
+    if (destructiveOps.length === 0) return true;
+    
+    if (!this.notificationManager) return true; // Proceed if no notification system
+    
+    const message = destructiveOps.length === 1
+      ? `This will ${destructiveOps[0].operation === 'delete_file' ? 'delete' : 'overwrite'} "${destructiveOps[0].path}". This action cannot be undone.`
+      : `This will modify or delete ${destructiveOps.length} existing files. This action cannot be undone.`;
+    
+    return await this.notificationManager.confirm({
+      title: 'Confirm File Operations',
+      message,
+      confirmText: 'Proceed',
+      cancelText: 'Cancel',
+      type: 'warning'
+    });
+  }
+
   private async executeFileOperations(content: string): Promise<boolean> {
     try {
       // Validate content is a non-empty string
@@ -132,22 +471,42 @@ export class ChatManager {
         return false;
       }
 
-      // The content is now a clean JSON string from structured output
-      const parsedContent = JSON.parse(content);
+      let ops: any[] = [];
+      let operationSource = 'unknown';
 
-      // Validate parsed content structure
-      if (!parsedContent || typeof parsedContent !== 'object') {
-        console.error('Parsed content is not a valid object');
+      // Strategy 1: Try JSON parsing first (for structured outputs)
+      if (content.trim().startsWith('{')) {
+        try {
+          const parsedContent = JSON.parse(content);
+          if (parsedContent && typeof parsedContent === 'object' && Array.isArray(parsedContent.operations)) {
+            ops = parsedContent.operations;
+            operationSource = 'json';
+          }
+        } catch (parseError) {
+          console.log('JSON parsing failed, trying markdown extraction');
+        }
+      }
+
+      // Strategy 2: Try markdown extraction if JSON failed or no JSON detected
+      if (ops.length === 0) {
+        ops = this.extractFileOperationsFromMarkdown(content);
+        operationSource = 'markdown';
+      }
+
+      // Strategy 3: Try loose pattern matching as final fallback
+      if (ops.length === 0) {
+        ops = this.extractLoosePatterns(content);
+        operationSource = 'loose';
+      }
+
+      // If no operations found, return false
+      if (!ops || ops.length === 0) {
+        this.debugLog('No file operations detected in content');
         return false;
       }
 
-      const ops = parsedContent.operations; // Access the 'operations' array
-
-      // Additional validation for operations array
-      if (!Array.isArray(ops)) {
-        console.error('Operations is not an array');
-        return false;
-      }
+      console.log(`Found ${ops.length} operations via ${operationSource} parsing`);
+      this.debugLog(`Extracted ${ops.length} operations`, { operations: ops, source: operationSource });
 
       // Validate each operation has required fields
       for (const op of ops) {
@@ -175,29 +534,167 @@ export class ChatManager {
         }
       }
 
+      // Ask for user confirmation for destructive operations
+      const shouldProceed = await this.confirmDestructiveOperation(ops);
+      if (!shouldProceed) {
+        if (this.notificationManager) {
+          this.notificationManager.info('File operations cancelled by user', 'Cancelled');
+        }
+        return false;
+      }
+
+      // Show initial notification for non-destructive operations
+      if (this.notificationManager) {
+        const summary = ops.map(op => `${op.operation.replace('_', ' ')} ${op.path}`).join(', ');
+        this.notificationManager.info(`Executing file operations: ${summary}`, 'File Operations', 2000);
+      }
+
       // First, save the current state for undo functionality
       this.explorerManager.backupWorkspaceState();
 
+      const executedOperations: any[] = [];
+      const failedOperations: any[] = [];
+      
+      // Clear previous execution results
+      this.lastExecutedOperations = [];
+
       for (const op of ops) {
-        switch (op.operation) {
-          case 'create_file':
-            await this.explorerManager.createFile(op.path, op.content || '');
-            break;
-          case 'edit_file':
-            await this.explorerManager.updateFileContent(op.path, op.content || '');
-            break;
-          case 'delete_file':
-            await this.explorerManager.deleteFile(op.path);
-            break;
-          default:
-            console.warn(`Unknown operation: ${op.operation}`);
+        try {
+          this.debugLog(`Executing operation: ${op.operation} on ${op.path}`);
+          
+          switch (op.operation) {
+            case 'create_file':
+              // Handle file conflicts for create operations
+              let createPath = op.path;
+              if (this.explorerManager.getWorkspace().byPath.has(op.path)) {
+                createPath = this.handleFileNameConflicts(op.path);
+                console.log(`File ${op.path} already exists, creating as ${createPath}`);
+                if (this.notificationManager) {
+                  this.notificationManager.warning(`File ${op.path} already exists, creating as ${createPath}`, 'File Conflict', 3000);
+                }
+              }
+              await this.explorerManager.createFile(createPath, op.content || '');
+              executedOperations.push({ ...op, path: createPath });
+              
+              if (this.notificationManager) {
+                this.notificationManager.success(`Created ${createPath}`, 'File Created', 2000);
+              }
+              break;
+              
+            case 'edit_file':
+              // Check if file exists before editing
+              if (!this.explorerManager.getWorkspace().byPath.has(op.path)) {
+                console.warn(`File ${op.path} not found for editing, creating instead`);
+                if (this.notificationManager) {
+                  this.notificationManager.warning(`File ${op.path} not found, creating new file instead`, 'File Not Found', 3000);
+                }
+                await this.explorerManager.createFile(op.path, op.content || '');
+                executedOperations.push({ operation: 'create_file', path: op.path, content: op.content });
+                
+                if (this.notificationManager) {
+                  this.notificationManager.success(`Created ${op.path}`, 'File Created', 2000);
+                }
+              } else {
+                await this.explorerManager.updateFileContent(op.path, op.content || '');
+                executedOperations.push(op);
+                
+                if (this.notificationManager) {
+                  this.notificationManager.success(`Updated ${op.path}`, 'File Updated', 2000);
+                }
+              }
+              break;
+              
+            case 'delete_file':
+              // Check if file exists before deleting
+              if (this.explorerManager.getWorkspace().byPath.has(op.path)) {
+                await this.explorerManager.deleteFile(op.path);
+                executedOperations.push(op);
+                
+                if (this.notificationManager) {
+                  this.notificationManager.success(`Deleted ${op.path}`, 'File Deleted', 2000);
+                }
+              } else {
+                console.warn(`File ${op.path} not found for deletion`);
+                failedOperations.push({ ...op, reason: 'File not found' });
+                
+                if (this.notificationManager) {
+                  this.notificationManager.warning(`Cannot delete ${op.path}: file not found`, 'Delete Failed', 3000);
+                }
+              }
+              break;
+              
+            default:
+              console.warn(`Unknown operation: ${op.operation}`);
+              failedOperations.push({ ...op, reason: 'Unknown operation' });
+              
+              if (this.notificationManager) {
+                this.notificationManager.error(`Unknown operation: ${op.operation}`, 'Operation Failed');
+              }
+        }
+        } catch (error) {
+          console.error(`Failed to execute ${op.operation} for ${op.path}:`, error);
+          failedOperations.push({ ...op, reason: error.message });
+          
+          if (this.notificationManager) {
+            this.notificationManager.error(`Failed to ${op.operation.replace('_', ' ')} ${op.path}: ${error.message}`, 'Operation Failed');
+          }
+        }
+      }
+
+      // Store execution results for confirmation message
+      this.lastExecutedOperations = executedOperations;
+
+      // Enhanced result summary with undo option
+      if (executedOperations.length > 0) {
+        console.log(`Successfully executed ${executedOperations.length} operations`);
+        
+        if (this.notificationManager) {
+          const successMessage = `Successfully completed ${executedOperations.length} file operation(s)`;
+          this.notificationManager.toast({
+            type: 'success',
+            title: 'Operations Complete',
+            message: successMessage,
+            duration: 0,
+            actions: [
+              {
+                label: 'Undo',
+                action: () => this.undoLastOperations(),
+                primary: false
+              }
+            ]
+          });
+        }
+      }
+
+      if (failedOperations.length > 0) {
+        console.warn(`Failed to execute ${failedOperations.length} operations:`, failedOperations);
+        
+        if (this.notificationManager) {
+          const failureMessage = `${failedOperations.length} operation(s) failed. Check console for details.`;
+          this.notificationManager.toast({
+            type: 'error',
+            title: 'Operation Errors',
+            message: failureMessage,
+            duration: 0,
+            actions: [
+              {
+                label: 'Show Details',
+                action: () => this.showFailureDetails(failedOperations),
+                primary: true
+              }
+            ]
+          });
         }
       }
 
       // Re-render the file tree to show changes
       this.explorerManager.renderTree();
-      console.log('File operations executed successfully.');
-      return true;
+      this.debugLog('File operations execution completed', { 
+        executed: executedOperations.length, 
+        failed: failedOperations.length 
+      });
+      
+      return executedOperations.length > 0; // Return true only if at least one operation succeeded
     } catch (error) {
       console.error('Failed to parse or execute file operations:', error);
       // Don't restore state on parsing error as nothing was changed
@@ -255,8 +752,28 @@ export class ChatManager {
     if (usageInfoEl) usageInfoEl.textContent = text;
   }
 
-  private createSystemPrompt(): string {
-    return `You are a Senior Software Engineer and Code Assistant with expertise in multiple programming languages, frameworks, and software development best practices. You are designed to help developers with:
+  private supportsStructuredOutputs(model: string): boolean {
+    // Models known to support structured outputs with json_schema
+    const supportedModels = [
+      'openai/gpt-4o',
+      'openai/gpt-4o-mini', 
+      'openai/gpt-4-turbo',
+      'openai/gpt-4-turbo-preview',
+      'anthropic/claude-3-5-sonnet',
+      'anthropic/claude-3-5-haiku'
+    ];
+    return supportedModels.some(supported => model.toLowerCase().includes(supported.toLowerCase()));
+  }
+
+  private createSystemPrompt(includeFileOperationInstructions: boolean = false): string {
+    // Get workspace state information
+    const workspace = this.explorerManager.getWorkspace();
+    const hasWorkspace = workspace.name || workspace.files.length > 0;
+    const workspaceInfo = hasWorkspace 
+      ? `**Current Workspace:** "${workspace.name || 'Unnamed'}" with ${workspace.files.length} files`
+      : `**Current Workspace:** No workspace is currently loaded`;
+
+    let prompt = `You are a Senior Software Engineer and Code Assistant with expertise in multiple programming languages, frameworks, and software development best practices. You are designed to help developers with:
 
 **Core Capabilities:**
 - Code analysis, debugging, and optimization
@@ -267,7 +784,12 @@ export class ChatManager {
 - Testing strategies and implementation
 - Documentation and code explanation
 
-**Response Guidelines:**
+**Workspace Context:**
+${workspaceInfo}
+
+${!hasWorkspace ? `**Auto-Workspace Creation:** When you need to create files but no workspace is loaded, the system will automatically create a new workspace with a generated name. You can freely create files even when starting from an empty state.
+
+` : ''}**Response Guidelines:**
 - Provide clear, accurate, and actionable advice
 - Reference specific files and line numbers when analyzing code
 - Offer multiple solutions when appropriate, explaining trade-offs
@@ -291,6 +813,35 @@ When working with provided code files:
 - Follow language-specific conventions and best practices
 
 You are working with a codebase context system that may provide you with relevant files. Use this context to give more accurate, specific, and helpful responses.`;
+
+    if (includeFileOperationInstructions) {
+      prompt += `
+
+**FILE OPERATION INSTRUCTIONS:**
+When the user requests to create, edit, or delete files, use this EXACT format:
+
+For creating files:
+**FILE OPERATION: CREATE**
+Path: filename.ext
+\`\`\`language
+file content here
+\`\`\`
+
+For editing files:
+**FILE OPERATION: EDIT**
+Path: existing-file.ext
+\`\`\`language
+updated file content here
+\`\`\`
+
+For deleting files:
+**FILE OPERATION: DELETE**
+Path: file-to-delete.ext
+
+IMPORTANT: Always use the exact headers "**FILE OPERATION: CREATE**", "**FILE OPERATION: EDIT**", or "**FILE OPERATION: DELETE**" followed by "Path:" and the file path. For create and edit operations, include the complete file content in a code block.`;
+    }
+
+    return prompt;
   }
 
   private extractUsageAndCache(obj: any): void {
@@ -343,8 +894,21 @@ You are working with a codebase context system that may provide you with relevan
   async streamChat(userText: string): Promise<void> {
     const model = this.settingsManager.getModel();
 
-    // Create system message
-    const systemMessage = { role: 'system' as const, content: this.createSystemPrompt() };
+    // Check if this is a file modification request
+    const isFileModificationRequest = userText.toLowerCase().includes('create file')
+        || userText.toLowerCase().includes('edit file')
+        || userText.toLowerCase().includes('delete file')
+        || userText.toLowerCase().includes('add file')
+        || userText.toLowerCase().includes('modify file')
+        || userText.toLowerCase().includes('update file')
+        || userText.toLowerCase().includes('remove file');
+
+    // Determine if we should use structured outputs or fallback mode
+    const useStructuredOutputs = isFileModificationRequest && this.supportsStructuredOutputs(model);
+    const useMarkdownMode = isFileModificationRequest && !useStructuredOutputs;
+
+    // Create system message with appropriate instructions
+    const systemMessage = { role: 'system' as const, content: this.createSystemPrompt(useMarkdownMode) };
 
     // Get conversation history (exclude any existing system messages)
     const historyMessages = this.messages
@@ -365,15 +929,6 @@ You are working with a codebase context system that may provide you with relevan
     if (contextStats)
       this.setUsage(`ctx: ${contextStats.selected} files, ~${contextStats.tokens} tokens${contextStats.truncated > 0 ? `, truncated ${contextStats.truncated}` : ''}`);
 
-    // Check if this is a file modification request
-    const isFileModificationRequest = userText.toLowerCase().includes('create file')
-        || userText.toLowerCase().includes('edit file')
-        || userText.toLowerCase().includes('delete file')
-        || userText.toLowerCase().includes('add file')
-        || userText.toLowerCase().includes('modify file')
-        || userText.toLowerCase().includes('update file')
-        || userText.toLowerCase().includes('remove file');
-
     const payload = {
       model,
       messages: requestMessages,
@@ -381,12 +936,15 @@ You are working with a codebase context system that may provide you with relevan
       usage: { include: true },
     } as any;
 
-    // Add structured output for file operations
-    if (isFileModificationRequest) {
+    // Add structured output for compatible models only
+    if (useStructuredOutputs) {
       payload.response_format = {
         type: "json_schema",
         json_schema: FILE_OPERATIONS_SCHEMA
       };
+      console.log('Using structured outputs for file operations');
+    } else if (useMarkdownMode) {
+      console.log('Using markdown fallback mode for file operations');
     }
 
     this.abortController = new AbortController();
@@ -447,16 +1005,29 @@ You are working with a codebase context system that may provide you with relevan
 
       // After stream is complete, check for and execute file operations
       const lastMessage = this.messages[this.messages.length - 1];
-      if (lastMessage && lastMessage.role === 'assistant') {
-        // Check if the content is likely a JSON string of operations
-        if (lastMessage.content.trim().startsWith('{')) {
-          const wasExecuted = await this.executeFileOperations(lastMessage.content);
-          if (wasExecuted) {
-            // Replace the JSON response with a user-friendly confirmation
-            lastMessage.content = "I have applied the file changes as requested.";
-            this.renderMessages();
-            saveHistory(this.messages);
-          }
+      if (lastMessage && lastMessage.role === 'assistant' && isFileModificationRequest) {
+        const wasExecuted = await this.executeFileOperations(lastMessage.content);
+        if (wasExecuted) {
+          // Extract the operations that were actually executed (with modifications)
+          const executionResult = await this.getLastExecutionResult();
+          const operationCounts = executionResult.reduce((acc: any, op: any) => {
+            acc[op.operation] = (acc[op.operation] || 0) + 1;
+            return acc;
+          }, {});
+          
+          let confirmationMessage = "✅ File operations completed successfully:\n";
+          if (operationCounts.create_file) confirmationMessage += `• Created ${operationCounts.create_file} file(s)\n`;
+          if (operationCounts.edit_file) confirmationMessage += `• Edited ${operationCounts.edit_file} file(s)\n`;
+          if (operationCounts.delete_file) confirmationMessage += `• Deleted ${operationCounts.delete_file} file(s)\n`;
+          
+          // Add parsing method info for debugging
+          const parseMethod = lastMessage.content.trim().startsWith('{') ? 'JSON' : 'Markdown';
+          confirmationMessage += `\n🔧 Detected via ${parseMethod} parsing`;
+          
+          // Replace the raw response with user-friendly confirmation
+          lastMessage.content = confirmationMessage.trim();
+          this.renderMessages();
+          saveHistory(this.messages);
         }
       }
     }
